@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check and safely update image-to-editable-figma from a private GitHub repo."""
+"""Check and safely update image-to-editable-figma from its public GitHub repo."""
 
 from __future__ import annotations
 

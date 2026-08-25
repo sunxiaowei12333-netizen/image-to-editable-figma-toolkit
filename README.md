@@ -1,6 +1,6 @@
 # 图片转可编辑 Figma 工具包
 
-这是团队内部使用的 Codex 工具包，包含两个彼此独立的 Skill：
+这是面向团队公开分发的 Codex 工具包，包含两个彼此独立的 Skill：
 
 - `image-to-editable-figma`：把参考图高保真还原为可编辑 Figma。
 - `image-to-editable-figma-updater`：只在用户明确要求时检查和安装主 Skill 更新。
@@ -9,13 +9,19 @@
 
 ## 首次安装
 
-先确认当前 GitHub 账号有权访问本私有仓库，然后让 Codex 执行：
+仓库公开可读，不需要 GitHub 登录或仓库邀请。把下面整段发送给 Codex：
+
+````text
+请执行下面命令，从公开 GitHub 仓库安装两个 Codex Skill。如果本地已经存在同名 Skill，不要覆盖，先告诉我。
 
 ```bash
 python3 ~/.codex/skills/.system/skill-installer/scripts/install-skill-from-github.py \
   --repo sunxiaowei12333-netizen/image-to-editable-figma-toolkit \
   --path skills/image-to-editable-figma skills/image-to-editable-figma-updater
 ```
+
+安装成功后告诉我，并提醒我新开一个 Codex 任务。
+````
 
 安装完成后开启一个新的 Codex 任务，并发送：
 
@@ -50,3 +56,4 @@ python3 ~/.codex/skills/.system/skill-installer/scripts/install-skill-from-githu
 - npm lockfile
 - 用户任务输出、浏览器 profile、账号信息、Token 或 Cookie
 
+仓库公开可读不代表进入公有领域或采用开源许可。团队内部使用及其他使用边界见 [LICENSE](LICENSE)。

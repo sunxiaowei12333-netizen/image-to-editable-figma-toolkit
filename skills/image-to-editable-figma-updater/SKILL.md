@@ -1,6 +1,6 @@
 ---
 name: image-to-editable-figma-updater
-description: 检查并更新团队私有仓库中的 image-to-editable-figma Skill。仅当用户明确要求检查更新、安装新版或恢复该 Skill 时使用；普通图片还原、HTML 预览和 Figma 导入任务不得调用。
+description: 检查并更新公开发布仓库中的 image-to-editable-figma Skill。仅当用户明确要求检查更新、安装新版或恢复该 Skill 时使用；普通图片还原、HTML 预览和 Figma 导入任务不得调用。
 ---
 
 # 图片转可编辑 Figma 更新器
@@ -27,7 +27,7 @@ python3 scripts/update_skill.py --check
 - 本地是否存在未发布修改；
 - 更新会保留哪些本机状态。
 
-私有仓库不可访问时，不得索取或显示 Token。若 Codex/GitHub 返回真实登录或授权按钮，原样转交；否则提供 `https://github.com/login` 和仓库管理员授权说明。
+公开仓库不可访问时，报告实际网络或 GitHub 错误，并提供仓库主页 `https://github.com/sunxiaowei12333-netizen/image-to-editable-figma-toolkit` 供用户检查；不得要求用户提供 Token，也不得把登录 GitHub 当作公开仓库的安装前置条件。
 
 没有新版时停止，不重复下载或要求用户确认。存在本地未发布修改时必须明确警告；除非用户明确同意覆盖本地修改，否则不得继续。
 
@@ -58,4 +58,3 @@ python3 scripts/update_skill.py --apply --confirm-version <最新版本>
 - “检查图片转 Figma Skill 有没有更新。”
 - “更新 image-to-editable-figma 到最新版。”
 - “恢复图片转 Figma Skill 的已发布版本。”
-

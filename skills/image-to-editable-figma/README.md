@@ -64,4 +64,4 @@ node scripts/bootstrap.mjs --ensure-hugeicons
 
 ## 更新
 
-更新由并列安装的 `image-to-editable-figma-updater` 处理。它只在用户明确要求时检查私有仓库；发现新版后必须先展示版本与变更，获得确认后才能替换主 Skill。更新成功后开启新的 Codex 任务加载新版。
+更新由并列安装的 `image-to-editable-figma-updater` 处理。它只在用户明确要求时检查公开发布仓库；发现新版后必须先展示版本与变更，获得确认后才能替换主 Skill。更新成功后开启新的 Codex 任务加载新版。

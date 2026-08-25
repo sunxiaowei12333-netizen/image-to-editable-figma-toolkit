@@ -1,11 +1,9 @@
 {
-  "version": "1.0.0",
-  "publishedAt": "2026-08-25T00:00:00+08:00",
-  "contentSha256": "6ca5ac01c58708cfba1fe128952ff212701f62178ea20ea7d79c8d98f2ca88ad",
+  "version": "1.0.1",
+  "publishedAt": "2026-08-25T15:40:10+08:00",
+  "contentSha256": "142667a6bf7a6ffa550f48868d7cd6597e02e28b44f54b5bc2ca4f7d6df9cee2",
   "changes": [
-    "首次团队私有仓库发布",
-    "保留现有高保真图片转可编辑 Figma 工作流",
-    "新增独立首次环境初始化流程",
-    "支持与独立 updater Skill 配套的受控更新"
+    "改为公开仓库分发，同事安装无需 GitHub 邀请或登录",
+    "仅调整分发说明，不改变图片转可编辑 Figma 的执行规则和效果"
   ]
 }
