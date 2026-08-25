@@ -1,0 +1,5 @@
+interface:
+  display_name: "图片转可编辑Figma文件"
+  short_description: "以预览图和双模式链接高保真还原可编辑 Figma"
+  default_prompt: "使用 $image-to-editable-figma 将界面图按视觉原子拆分并建立构图契约，内部保留可维护源 HTML，对外交付最终预览图和一个双通道 Capture HTML；体积安全时自包含，存在官方 Capture 载荷风险时无损引用当前版本本地资源。等待我明确审批后，再保持 UI 与文字可编辑地导入指定 Figma 文件。"
+  brand_color: "#14B8A6"

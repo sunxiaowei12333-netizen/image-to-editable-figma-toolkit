@@ -1,0 +1,6 @@
+interface:
+  display_name: "更新图片转 Figma Skill"
+  short_description: "只在明确要求时检查并安全更新主 Skill"
+  default_prompt: "使用 $image-to-editable-figma-updater 只读检查图片转 Figma Skill 更新；如有新版，先展示版本和变更，等待我明确确认后再安装。"
+  brand_color: "#0F766E"
+

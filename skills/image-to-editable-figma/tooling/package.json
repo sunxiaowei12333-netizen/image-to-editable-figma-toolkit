@@ -1,0 +1,8 @@
+{
+  "name": "image-to-editable-figma-tooling",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@hugeicons/core-free-icons": "latest"
+  }
+}

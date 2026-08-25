@@ -1,0 +1,8 @@
+.DS_Store
+**/__pycache__/
+*.pyc
+**/tooling/node_modules/
+**/tooling/package-lock.json
+**/tooling/npm-shrinkwrap.json
+**/tooling/.local-state.json
+
