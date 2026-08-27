@@ -62,10 +62,14 @@
   "completeVisibleBounds": true,
   "noOcclusion": true,
   "noBakedUiTextOrAdjacentContent": true,
-  "effectiveResolutionAtLeast2x": true,
+  "effectiveResolutionScale": 1.55,
+  "effectiveResolutionAtLeast1_5x": true,
+  "effectiveResolutionAtLeast2x": false,
   "inspectionNote": "矩形媒体边界完整，未烘焙卡片描边或状态 UI"
 }
 ```
+
+`effectiveResolutionScale` 记录宽、高两个方向中更低的实测有效倍率。`2×` 是首选，`1.5×–<2×` 属于可接受的“接近 2×”，因此 `effectiveResolutionAtLeast1_5x=true`、`effectiveResolutionAtLeast2x=false` 可以通过资源计划；最终仍必须完成标准画布 `100%`/`200%` 清晰度检查。旧清单中仅有 `effectiveResolutionAtLeast2x=true` 时继续兼容并视为倍率至少 `2×`；新清单不得省略实测倍率。
 
 选择 `reliable-separation` 时，除上述字段外还必须全部为 true：
 
@@ -75,7 +79,7 @@
 "noFragileEdgeFeatures": true
 ```
 
-任一必需布尔值为 false、字段缺失或 `inspectionNote` 为空，都说明当前方法没有足够证据，资源计划预检必须失败并改用清单中更可靠的图片方法。复杂度信号本身不意味着一律生成：如果独立原始素材或裁切/分离证据确实全部成立，仍可复用；但“节省时间、控制生成数量、先做出来看看”不能代替证据。
+除表示首选状态的 `effectiveResolutionAtLeast2x` 可为 false 外，任一必需布尔值为 false、最低实测倍率小于 `1.5`、字段缺失或 `inspectionNote` 为空，都说明当前方法没有足够证据，资源计划预检必须失败并改用清单中更可靠的图片方法。复杂度信号本身不意味着一律生成：如果独立原始素材或裁切/分离证据确实全部成立，仍可复用；但“节省时间、控制生成数量、先做出来看看”不能代替证据。
 
 资源清单写完后、生成素材或编写 HTML 前运行：
 

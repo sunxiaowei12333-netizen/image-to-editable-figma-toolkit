@@ -31,6 +31,8 @@ const INSTALL_PATHS = {
   node: "https://nodejs.org/en/download",
   python: "https://www.python.org/downloads/",
   pillow: "python3 -m pip install Pillow",
+  numpy: "python3 -m pip install numpy",
+  opencv: "python3 -m pip install opencv-python",
   figmaCodexPlugin: "Codex → 设置 → 插件 → Figma",
   chromeCodexPlugin: "Codex → 设置 → 插件 → Chrome",
   chatgptBrowserExtension: "Codex → 设置 → Computer use → 安装 Chrome 扩展",

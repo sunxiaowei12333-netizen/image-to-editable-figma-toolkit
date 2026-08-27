@@ -2,13 +2,13 @@
 
 ## 团队安装
 
-本仓库同时分发主 Skill 和独立更新器。建议按仓库根目录的安装命令一次安装两个 Skill，不要只复制 `SKILL.md`。主 Skill 还依赖 `agents/`、`assets/`、`references/`、`scripts/` 和 `tooling/package.json`。
-
-主 Skill 安装位置为：
+从 GitHub 下载或克隆后，请把完整的 `image-to-editable-figma/` 目录复制到每位用户的 Codex Skills 目录，例如：
 
 ```text
 ~/.codex/skills/image-to-editable-figma/
 ```
+
+不要只复制 `SKILL.md`。本 Skill 还依赖 `agents/`、`assets/`、`references/`、`scripts/` 和 `tooling/package.json`。
 
 本机需要：
 
@@ -17,19 +17,37 @@
 - Python 3 与 Pillow：`python3 -m pip install -r requirements.txt`；
 - Google Chrome。
 
-新机器安装后，在新的 Codex 任务中发送：
-
-```text
-首次安装后，帮我初始化图片转 Figma 的全部环境。
-```
-
-初始化会集中检查本地依赖、Figma、Chrome、Computer Use 和 macOS 权限。安全的 Skill 私有依赖可自动修复；持久授权使用真实授权界面，必须人工完成的步骤提供官方链接或精确设置路径。也可以单独运行本地依赖准备：
+新机器可手动执行只读检查：
 
 ```bash
-node scripts/setup_environment.mjs --prepare
+node scripts/bootstrap.mjs --check
 ```
 
-首次初始化不是每次任务的前置步骤；普通图片任务不读取初始化状态，也不会因扩展已安装而改变默认导入通道。
+该检查不是每次任务的强制前置步骤；Figma MCP 会在获批后的 Figma 阶段由 Codex 检查。
+
+## 稳定预览服务（可选，需明确授权）
+
+稳定预览服务只解决 `127.0.0.1` 预览链接随临时终端退出而失效的问题，不参与图片生成、HTML 构建、视觉渲染、审批或 Figma 写入。安装常驻服务是一次持久环境修改，不会在普通图片任务中静默执行。
+
+先检查安装方案，不落盘：
+
+```bash
+node scripts/preview-service.mjs install --dry-run
+```
+
+用户明确同意后，在 macOS 安装用户级 LaunchAgent：
+
+```bash
+node scripts/preview-service.mjs install --confirm-persistent-install
+```
+
+日常任务只需 `status`、`register` 和 `verify`。默认固定地址为 `127.0.0.1:41972`，每个 URL 包含独立任务 ID 和版本，不提供 `/latest` 或整个工作区。端口被未知进程占用时命令会停止，不会静默换端口。详细命令、安全边界、恢复与卸载规则见 [`references/preview-service.md`](references/preview-service.md)。
+
+卸载只移除保活包装并让历史链接暂时离线，不删除路由映射、任务 HTML、图片、字体、报告或审批指纹：
+
+```bash
+node scripts/preview-service.mjs uninstall
+```
 
 ## Hugeicons
 
@@ -49,19 +67,15 @@ node scripts/bootstrap.mjs --ensure-hugeicons
 
 不要把 `tooling/node_modules`、`package-lock.json` 或本机状态文件提交到 GitHub。
 
-## Figma 浏览器扩展与授权
+## Figma 浏览器扩展（可选）
 
-只有在用户明确执行首次环境初始化时，Skill 才检查可能涉及的 Codex 插件、Figma 授权、Chrome 扩展与系统权限。Figma 官方扩展入口为：
+首次使用时，Skill 会提供一个可点击的官方安装入口：
 
 - 名称：Figma
 - 安装：[Chrome Web Store 官方页面](https://chromewebstore.google.com/detail/figma/fkmaohpngenfoccdgceedjkfhkdcohmg)
 - 扩展 ID：`fkmaohpngenfoccdgceedjkfhkdcohmg`
 - 发布者：`Figma, Inc.`
 
-扩展允许用户把 Skill 交付的 HTML 预览链接导入 Figma。添加扩展和持久授权必须通过 Chrome 或系统提供的真实确认界面；未安装扩展不影响普通页面使用 Figma 官方自动 Capture。
+扩展允许用户自行把 Skill 交付的 HTML 预览链接导入 Figma。点击链接只会打开安装页面；添加扩展和授权必须由用户在 Chrome 中确认。未安装扩展不影响 Figma 官方自动 Capture 流程，也不会阻塞页面生成。
 
-初始化状态只保存在被 Git 忽略的 `tooling/.local-state.json`，日常任务不读取它，也不根据它决定生成、构建或导入通道。
-
-## 更新
-
-更新由并列安装的 `image-to-editable-figma-updater` 处理。它只在用户明确要求时检查公开发布仓库；发现新版后必须先展示版本与变更，获得确认后才能替换主 Skill。更新成功后开启新的 Codex 任务加载新版。
+首次提示状态只保存在被 Git 忽略的 `tooling/.local-state.json`，只控制是否重复显示提示，不参与生成、构建或导入判断。

@@ -24,9 +24,9 @@
 node scripts/setup_environment.mjs --prepare
 ```
 
-脚本复用现有 `bootstrap.mjs --check` 检查 Node、npm、Python、Pillow、Chrome 和 Hugeicons。只有 Hugeicons 缺失时允许在 Skill 私有 `tooling/` 中自动初始化；不得自动安装或升级系统 Node、Python、Chrome，也不得改变系统 Python 环境。
+脚本复用现有 `bootstrap.mjs --check` 检查 Node、npm、Python、Pillow、NumPy、OpenCV、Chrome 和 Hugeicons。只有 Hugeicons 缺失时允许在 Skill 私有 `tooling/` 中自动初始化；不得自动安装或升级系统 Node、Python、图片处理依赖、Chrome，也不得改变系统 Python 环境。
 
-脚本输出 JSON。先读取 `local.ok`、`missingLocal`、`runtimeRequirements` 和 `manualActions`，再继续 Codex 运行时检查。缺少 Chrome、Node、Python 或 Pillow 时，集中给出对应官方链接/命令并暂停初始化，用户完成后重新运行 `--prepare`。
+脚本输出 JSON。先读取 `local.ok`、`missingLocal`、`runtimeRequirements` 和 `manualActions`，再继续 Codex 运行时检查。缺少 Chrome、Node、Python、Pillow、NumPy 或 OpenCV 时，集中给出对应官方链接/命令并暂停初始化，用户完成后重新运行 `--prepare`。
 
 ### 2. Codex 与 Figma 连接
 
@@ -71,6 +71,12 @@ Computer Use 只为本机字体分支中自动操作 Chrome 工具栏、Figma �
 安装、Chrome 权限和 Figma 登录属于持久授权，不得静默执行。若当前安装请求已明确授权 Computer Use 代操作，且系统政策允许，可用 Computer Use 打开官方商店并完成普通安装步骤；浏览器或系统要求用户确认持久权限时，必须展示真实确认界面。Computer Use 本身尚未获得权限时，提供上方链接由用户完成。
 
 不要把 Figma 扩展安装状态仅根据本地标记判为已验证。优先通过扩展提供的正常可见状态或一次无设计写入的连接检查确认；无法可靠验证时记录为 `user-confirmed`，不得扫描 Chrome profile。
+
+### 6. 稳定预览服务（单独授权，可选）
+
+稳定预览服务不属于上述插件、连接器或系统权限初始化，也不参与 `--mark-complete` 的能力列表。若用户另外明确同意安装常驻预览服务，完整读取 [preview-service.md](preview-service.md)，先运行 `install --dry-run` 检查固定端口和安装位置，再执行带 `--confirm-persistent-install` 的正式安装。macOS 用户级 `launchd` 属于持久环境修改，普通首次初始化不得顺带安装。
+
+用户未授权时跳过本项，不得用临时服务器伪装成已经安装；后续普通图片任务首次需要稳定链接时，再单独说明并请求一次授权。服务在线只解决本地 URL 生命周期，不改变 HTML、Capture、审批或 Figma 写入规则。
 
 ## 安装结果与状态
 
@@ -123,4 +129,4 @@ node scripts/setup_environment.mjs --status
 - 需要重启 Codex/Chrome 或重新登录 Figma：`15–25 分钟`。
 - 企业策略限制安装或权限：可能超过 `30 分钟`，必要时报告管理员阻塞。
 
-这些时间只属于首次安装。完成后普通图片转 Figma 任务不增加初始化检查或提示。
+这些时间只属于首次安装。完成后普通图片转 Figma 任务不增加初始化检查或提示。若用户同时授权稳定预览服务，另增加一次端口检查和 LaunchAgent 安装，通常只需秒级；该时间不包含异常端口冲突排查。

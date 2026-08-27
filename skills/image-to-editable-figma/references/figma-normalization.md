@@ -49,8 +49,8 @@ Capture 将 `<br>`、内联强调或文本旁的 Shape 拆成多个 Text 时，�
 最终必须同时满足：
 
 - 根节点尺寸等于标准画布；背景为首个/最底层叶子 Rectangle 图片层，根节点无 image fill；
-- 带 IMAGE fill 的无职责 Frame、无职责叶子 Frame、纯样式 Frame 均为 `0`；
-- 规则矩形底板为 Rectangle，UI 图标为可追溯的 Instance；
+- 带 IMAGE fill 的无职责 Frame、无职责叶子 Frame、纯样式 Frame 均为 `0`；仅当主 Skill 定义的透明 SVG 根 Frame 例外全部成立时，才从上述统计排除并单独列出，且不得借此改变 HTML 生成策略；
+- 规则矩形底板默认以 Rectangle 交付；主 Skill 定义的透明 SVG 根 Frame 例外可原样验收，其唯一可见 Vector/Shape 必须可直接编辑圆角；UI 图标仍必须为可追溯的 Instance；
 - 构图契约中的每项对象数量与 `figmaType` 完全匹配；LINE 不得退化为 Frame/Rectangle，气泡尾巴等 VECTOR 的方向、位置和轮廓不变量保持一致；
 - Figma 节点边界与已通过的 HTML 构图报告处于契约容差内，中心/边角锚点和锁定比例没有因规范化改变；
 - 每个保留 Frame 都能说明布局、叠层、裁切、滚动、响应式、交互或根画布职责；

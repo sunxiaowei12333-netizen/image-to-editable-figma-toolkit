@@ -20,6 +20,7 @@ from preflight_html import (
     SUPPORTED_RESOURCE_KINDS,
     read_json_object,
     sha256_file,
+    validate_resolution_evidence,
 )
 
 
@@ -101,6 +102,7 @@ def validate_reuse_evidence(
         errors.append(
             f"{label}.reuseEvidence.inspectionNote must be a non-empty string for {source_method}"
         )
+    validate_resolution_evidence(evidence, f"{label}.reuseEvidence", errors)
 
 
 def validate_assets(manifest: dict[str, object], errors: list[str]) -> dict[str, int]:

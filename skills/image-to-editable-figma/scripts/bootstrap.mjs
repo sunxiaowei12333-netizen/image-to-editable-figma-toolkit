@@ -235,10 +235,12 @@ function parseCliArgs(argv) {
 }
 
 async function runCheck(sourceDir) {
-  const [npm, python, pillow, chrome, hugeicons] = await Promise.all([
+  const [npm, python, pillow, numpy, opencv, chrome, hugeicons] = await Promise.all([
     commandStatus(process.platform === "win32" ? "npm.cmd" : "npm", ["--version"]),
     commandStatus("python3", ["--version"]),
     commandStatus("python3", ["-c", "import PIL; print(PIL.__version__)"]),
+    commandStatus("python3", ["-c", "import numpy; print(numpy.__version__)"]),
+    commandStatus("python3", ["-c", "import cv2; print(cv2.__version__)"]),
     chromeStatus(),
     findHugeiconsDir(sourceDir),
   ]);
@@ -247,6 +249,8 @@ async function runCheck(sourceDir) {
     npm,
     python,
     pillow,
+    numpy,
+    opencv,
     chrome,
     hugeicons: hugeicons
       ? { available: true, detail: hugeicons.dir, source: hugeicons.source }

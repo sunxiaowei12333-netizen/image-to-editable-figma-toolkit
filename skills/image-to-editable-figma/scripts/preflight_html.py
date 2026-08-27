@@ -85,7 +85,6 @@ BASE_REUSE_EVIDENCE_FIELDS = {
     "completeVisibleBounds",
     "noOcclusion",
     "noBakedUiTextOrAdjacentContent",
-    "effectiveResolutionAtLeast2x",
 }
 SEPARATION_EVIDENCE_FIELDS = {
     "hardEdgesOnly",
@@ -97,6 +96,40 @@ ROUTING_EXCEPTION_TYPES = {
     "verified_layered_vector_source",
 }
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
+
+
+def validate_resolution_evidence(
+    evidence: dict[str, object], label: str, errors: list[str]
+) -> None:
+    """Accept legacy confirmed 2x evidence or require a measured >=1.5x scale."""
+    legacy_2x_only = (
+        evidence.get("effectiveResolutionAtLeast2x") is True
+        and "effectiveResolutionScale" not in evidence
+        and "effectiveResolutionAtLeast1_5x" not in evidence
+    )
+    if legacy_2x_only:
+        return
+
+    resolution_scale = evidence.get("effectiveResolutionScale")
+    if (
+        not isinstance(resolution_scale, (int, float))
+        or isinstance(resolution_scale, bool)
+        or float(resolution_scale) < 1.5
+    ):
+        errors.append(f"{label}.effectiveResolutionScale must be a number >= 1.5")
+    if evidence.get("effectiveResolutionAtLeast1_5x") is not True:
+        errors.append(f"{label}.effectiveResolutionAtLeast1_5x must be true")
+    preferred_2x = evidence.get("effectiveResolutionAtLeast2x")
+    if not isinstance(preferred_2x, bool):
+        errors.append(f"{label}.effectiveResolutionAtLeast2x must be boolean")
+    elif isinstance(resolution_scale, (int, float)) and not isinstance(
+        resolution_scale, bool
+    ):
+        expected_2x = float(resolution_scale) >= 2.0
+        if preferred_2x is not expected_2x:
+            errors.append(
+                f"{label}.effectiveResolutionAtLeast2x must match effectiveResolutionScale"
+            )
 
 
 def attrs_dict(attrs: list[tuple[str, str | None]]) -> dict[str, str]:
@@ -468,9 +501,12 @@ def validate_resource_manifest(
                         )
                 inspection_note = reuse_evidence.get("inspectionNote")
                 if not isinstance(inspection_note, str) or not inspection_note.strip():
-                    errors.append(
-                        f"{label}.reuseEvidence.inspectionNote must be a non-empty string for {source_method}"
-                    )
+                        errors.append(
+                            f"{label}.reuseEvidence.inspectionNote must be a non-empty string for {source_method}"
+                        )
+                validate_resolution_evidence(
+                    reuse_evidence, f"{label}.reuseEvidence", errors
+                )
 
         signals = asset.get("complexitySignals")
         if not isinstance(signals, list) or any(not isinstance(value, str) for value in signals):
