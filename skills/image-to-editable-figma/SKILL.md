@@ -3,7 +3,7 @@ name: image-to-editable-figma
 description: 将界面截图或本地图片高精度还原为可交互 HTML，以独立位图承载纯场景背景、完整 IP 和复杂视觉原子，以原生形状/SVG/Text/Group 承载简单 UI 与需要编辑的内容；内部保留可维护源文件，对外交付一个同时支持浏览器预览、浏览器 Figma 插件和官方 HTTP Capture 的 HTML，体积安全时自包含，官方 Capture 有超限风险时无损引用当前版本本地资源，再整理为语义正确、字体可稳定再编辑的 Figma。当用户说“还原这个页面”“将这张图转成可编辑文件”“图片转可编辑 Figma 文件”“采集到 Figma”“打开 HTML 直接导入 Figma”、要求首次安装环境初始化，或提供截图、HTML 路径与 Figma 链接时使用。
 ---
 
-# 图片转可编辑Figma文件
+# 图片转 Figma
 
 ## 目标
 

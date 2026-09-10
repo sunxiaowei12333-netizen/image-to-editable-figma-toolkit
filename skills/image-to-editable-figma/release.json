@@ -1,10 +1,9 @@
 {
-  "version": "1.1.1",
-  "publishedAt": "2026-08-31T19:03:12+08:00",
-  "contentSha256": "b13180e54356bba47b5cf0118046ffec1eb0c11ca2ea1f29d8e1cbfa964d635a",
+  "version": "1.1.2",
+  "publishedAt": "2026-09-10T15:16:52+08:00",
+  "contentSha256": "64709c3fb9bbb5adbb3681aefd2d3a9d8ea1fe7ef1309017a7669ec2d58fc0c3",
   "changes": [
-    "新增图片生成通道降级链：优先 image-gen 的 image2，其次同工具可用的最高质量模型，再回退到当前环境已有的其他生图或图片编辑模型",
-    "明确工具或模型不可用不计为视觉原子生成失败，不要求用户补装指定工具或配置 API，并保持原有透明度、分辨率、视觉原子完整性与 QA 门槛",
-    "区分 generatedImage 兼容工具与其他生图工具的结果保存方式，避免因显示或返回结构差异重复生成同一资源"
+    "将主 Skill 的中文展示名统一调整为“图片转 Figma”",
+    "保留英文调用名 image-to-editable-figma，兼容现有安装、更新与显式调用方式"
   ]
 }

@@ -1,4 +1,4 @@
-# 图片转可编辑 Figma Skill
+# 图片转 Figma
 
 ## 团队安装
 
