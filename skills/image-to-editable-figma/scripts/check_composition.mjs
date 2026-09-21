@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -23,22 +24,24 @@ const VERTICAL_ANCHORS = new Set(["top", "center", "bottom"]);
 
 function usage() {
   return `Usage:
-  node scripts/check_composition.mjs <url-or-html> <composition-contract.json> [--output <report.json>] [--chrome <path>] [--timeout <ms>]
+  node scripts/check_composition.mjs <url-or-html> <composition-contract.json> [--mode strict|delivery] [--output <report.json>] [--screenshot <preview.png>] [--chrome <path>] [--timeout <ms>]
   node scripts/check_composition.mjs --self-test`;
 }
 
 function parseArgs(argv) {
   if (argv.includes("--self-test")) return { selfTest: true };
   const positional = [];
-  const options = { timeout: 15000 };
+  const options = { timeout: 15000, mode: "strict" };
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
-    if (value === "--output" || value === "--chrome" || value === "--timeout") {
+    if (value === "--output" || value === "--screenshot" || value === "--chrome" || value === "--timeout" || value === "--mode") {
       const next = argv[index + 1];
       if (!next) throw new Error(`Missing value for ${value}`);
       if (value === "--output") options.output = next;
+      if (value === "--screenshot") options.screenshot = next;
       if (value === "--chrome") options.chrome = next;
       if (value === "--timeout") options.timeout = Number(next);
+      if (value === "--mode") options.mode = next;
       index += 1;
     } else if (value.startsWith("--")) {
       throw new Error(`Unknown option: ${value}`);
@@ -49,6 +52,9 @@ function parseArgs(argv) {
   if (positional.length !== 2) throw new Error(usage());
   if (!Number.isFinite(options.timeout) || options.timeout < 1000) {
     throw new Error("--timeout must be at least 1000ms");
+  }
+  if (!["strict", "delivery"].includes(options.mode)) {
+    throw new Error("--mode must be strict or delivery");
   }
   return { target: positional[0], contractPath: positional[1], ...options };
 }
@@ -101,8 +107,8 @@ function validateContract(contract) {
     if (item.anchor?.vertical && !VERTICAL_ANCHORS.has(item.anchor.vertical)) {
       errors.push(`${prefix}.anchor.vertical must be top/center/bottom`);
     }
-    if (item.aspectPolicy && !["intrinsic", "locked", "flexible"].includes(item.aspectPolicy)) {
-      errors.push(`${prefix}.aspectPolicy must be intrinsic/locked/flexible`);
+    if (item.aspectPolicy && !["intrinsic", "locked", "cover", "flexible"].includes(item.aspectPolicy)) {
+      errors.push(`${prefix}.aspectPolicy must be intrinsic/locked/cover/flexible`);
     }
     if (item.figmaType && !FIGMA_TYPES.has(String(item.figmaType).toUpperCase())) {
       errors.push(`${prefix}.figmaType is unsupported: ${item.figmaType}`);
@@ -214,11 +220,11 @@ async function connectCDP(url) {
   };
 }
 
-function browserCheck(contract) {
+function browserCheck(contract, validationMode = "strict") {
   const isFinitePositive = (value) => Number.isFinite(value) && value > 0;
   const errors = [];
   const warnings = [];
-  const metrics = { canvas: null, elements: [] };
+  const metrics = { canvas: null, elements: [], runtime: {} };
   const defaults = {
     canvasTolerancePx: 1,
     boundsTolerancePx: 4,
@@ -247,6 +253,159 @@ function browserCheck(contract) {
     }
   }
 
+  const root = document.documentElement;
+  const body = document.body;
+  const rootStyle = getComputedStyle(root);
+  const bodyStyle = body ? getComputedStyle(body) : null;
+  const canvasStyle = getComputedStyle(canvas);
+  metrics.runtime.viewport = { width: window.innerWidth, height: window.innerHeight };
+  metrics.runtime.scroll = {
+    width: Math.max(root.scrollWidth, body?.scrollWidth || 0),
+    height: Math.max(root.scrollHeight, body?.scrollHeight || 0),
+    overflowX: { root: rootStyle.overflowX, body: bodyStyle?.overflowX || null, canvas: canvasStyle.overflowX },
+    overflowY: { root: rootStyle.overflowY, body: bodyStyle?.overflowY || null, canvas: canvasStyle.overflowY },
+  };
+  metrics.runtime.fonts = document.fonts ? document.fonts.status : "unsupported";
+  metrics.runtime.images = [...document.images].map((image) => {
+    const rawSrc = image.currentSrc || image.src;
+    const src = rawSrc.startsWith("data:")
+      ? `${rawSrc.slice(0, rawSrc.indexOf(",") + 1)}<${rawSrc.length} chars>`
+      : rawSrc;
+    return {
+      src,
+      complete: image.complete,
+      naturalWidth: image.naturalWidth,
+      naturalHeight: image.naturalHeight,
+    };
+  });
+  metrics.runtime.pageAudits = {
+    fontAudit: Array.isArray(window.__fontAudit) ? window.__fontAudit : null,
+    colorAudit: Array.isArray(window.__colorAudit) ? window.__colorAudit : null,
+  };
+  const textSelectors = [
+    '[data-figma-node-type="TEXT"]',
+    "[data-text-role]",
+    "h1",
+    "h2",
+    "h3",
+    "p",
+    "button",
+    "label",
+  ];
+  const textNodes = [...new Set(textSelectors.flatMap((selector) => [...canvas.querySelectorAll(selector)]))]
+    .filter((node) => String(node.textContent || "").trim());
+  metrics.runtime.textStyles = textNodes.map((node) => {
+    const style = getComputedStyle(node);
+    const rect = node.getBoundingClientRect();
+    return {
+      role: node.getAttribute("data-text-role") || node.getAttribute("data-composition-id") || null,
+      text: String(node.textContent || "").trim().replace(/\s+/g, " ").slice(0, 120),
+      family: style.fontFamily,
+      weight: style.fontWeight,
+      size: style.fontSize,
+      lineHeight: style.lineHeight,
+      letterSpacing: style.letterSpacing,
+      color: style.color,
+      width: rect.width,
+      height: rect.height,
+    };
+  });
+  const normalizeColor = (value) => {
+    const probe = document.createElement("span");
+    probe.style.color = value;
+    probe.style.display = "none";
+    document.body.append(probe);
+    const normalized = getComputedStyle(probe).color;
+    probe.remove();
+    return normalized;
+  };
+  metrics.runtime.colorAudit = [...canvas.querySelectorAll("[data-expected-color]")].map((node) => {
+    const expected = node.getAttribute("data-expected-color");
+    const actual = getComputedStyle(node).color;
+    const normalizedExpected = normalizeColor(expected);
+    const matches = actual === normalizedExpected;
+    const entry = {
+      role: node.getAttribute("data-color-role") || node.getAttribute("data-text-role") || node.getAttribute("data-composition-id") || null,
+      expected,
+      normalizedExpected,
+      actual,
+      matches,
+    };
+    if (!matches) errors.push(`Color ${entry.role || node.tagName.toLowerCase()}=${actual}, expected ${expected} (${normalizedExpected})`);
+    return entry;
+  });
+
+  const resourceNodes = [...canvas.querySelectorAll("[data-resource-id]")];
+  const resourceCounts = new Map();
+  for (const node of resourceNodes) {
+    const id = node.getAttribute("data-resource-id") || "<missing>";
+    resourceCounts.set(id, (resourceCounts.get(id) || 0) + 1);
+  }
+  for (const [id, count] of resourceCounts) {
+    if (count > 1) errors.push(`Resource ${id} is represented by ${count} DOM nodes, expected one independent visual node`);
+  }
+  const visibleResource = (node) => {
+    const style = getComputedStyle(node);
+    const rect = node.getBoundingClientRect();
+    return style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity) > 0 && rect.width > 0 && rect.height > 0;
+  };
+  metrics.runtime.resourceIsolation = [];
+  for (const node of resourceNodes) {
+    const id = node.getAttribute("data-resource-id") || "<missing>";
+    const before = new Map(resourceNodes.map((candidate) => [candidate, visibleResource(candidate)]));
+    const previousVisibility = node.style.getPropertyValue("visibility");
+    const previousPriority = node.style.getPropertyPriority("visibility");
+    node.style.setProperty("visibility", "hidden", "important");
+    const affected = resourceNodes
+      .filter((candidate) => candidate !== node && before.get(candidate) && !visibleResource(candidate))
+      .map((candidate) => candidate.getAttribute("data-resource-id") || "<missing>");
+    if (previousVisibility) node.style.setProperty("visibility", previousVisibility, previousPriority);
+    else node.style.removeProperty("visibility");
+    metrics.runtime.resourceIsolation.push({ id, affected });
+    if (affected.length) errors.push(`Hiding resource ${id} also hides resources: ${affected.join(", ")}`);
+  }
+  if (window.innerWidth !== contract.canvas.width || window.innerHeight !== contract.canvas.height) {
+    errors.push(`Viewport ${window.innerWidth}x${window.innerHeight} differs from canvas ${contract.canvas.width}x${contract.canvas.height}`);
+  }
+  const blocksOverflow = (values) => values.some((value) => value === "hidden" || value === "clip");
+  const overflowXBlocked = blocksOverflow([rootStyle.overflowX, bodyStyle?.overflowX, canvasStyle.overflowX]);
+  const overflowYBlocked = blocksOverflow([rootStyle.overflowY, bodyStyle?.overflowY, canvasStyle.overflowY]);
+  if (metrics.runtime.scroll.width > contract.canvas.width && !overflowXBlocked) {
+    errors.push(`Document scroll width ${metrics.runtime.scroll.width} exceeds canvas width ${contract.canvas.width}`);
+  }
+  if (metrics.runtime.scroll.height > contract.canvas.height && !overflowYBlocked) {
+    errors.push(`Document scroll height ${metrics.runtime.scroll.height} exceeds canvas height ${contract.canvas.height}`);
+  }
+  if (document.fonts && document.fonts.status !== "loaded") {
+    errors.push(`Document fonts status is ${document.fonts.status}, expected loaded`);
+  }
+  for (const image of metrics.runtime.images) {
+    if (!image.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) {
+      errors.push(`Image failed to load: ${image.src}`);
+    }
+  }
+
+  metrics.runtime.fixedFlex = [];
+  for (const node of document.querySelectorAll('[data-figma-width="fixed"], [data-figma-height="fixed"]')) {
+    const parent = node.parentElement;
+    if (!parent) continue;
+    const parentStyle = getComputedStyle(parent);
+    if (parentStyle.display !== "flex" && parentStyle.display !== "inline-flex") continue;
+    const direction = parentStyle.flexDirection;
+    const mainAxisFixed = direction.startsWith("row")
+      ? node.getAttribute("data-figma-width") === "fixed"
+      : direction.startsWith("column")
+        ? node.getAttribute("data-figma-height") === "fixed"
+        : false;
+    if (!mainAxisFixed || getComputedStyle(node).position === "absolute") continue;
+    const flexShrink = Number(getComputedStyle(node).flexShrink);
+    const label = node.id ? `#${node.id}` : node.className ? `.${String(node.className).trim().split(/\s+/).join(".")}` : node.tagName.toLowerCase();
+    metrics.runtime.fixedFlex.push({ label, direction, flexShrink });
+    if (flexShrink !== 0) {
+      errors.push(`${label} is fixed on the ${direction} Flex main axis but computed flex-shrink=${flexShrink}; use f-fixed`);
+    }
+  }
+
   const relativeRect = (node) => {
     const rect = node.getBoundingClientRect();
     return {
@@ -256,9 +415,12 @@ function browserCheck(contract) {
       height: rect.height,
     };
   };
+  const geometryIssues = validationMode === "delivery" ? warnings : errors;
   const compare = (id, label, actual, expected, tolerance) => {
     const delta = Math.abs(actual - expected);
-    if (delta > tolerance) errors.push(`${id} ${label}=${actual} differs from ${expected} by ${delta}px (tolerance ${tolerance}px)`);
+    if (delta > tolerance) {
+      geometryIssues.push(`${id} ${label}=${actual} differs from ${expected} by ${delta}px (tolerance ${tolerance}px)`);
+    }
   };
 
   for (const item of contract.elements) {
@@ -343,7 +505,13 @@ function browserCheck(contract) {
       compare(item.id, `${anchor.vertical} anchor`, actual, expected, anchorTolerance);
     }
 
-    if (item.aspectPolicy && item.aspectPolicy !== "flexible") {
+    if (item.aspectPolicy === "cover") {
+      if (!(node instanceof HTMLImageElement)) {
+        errors.push(`${item.id} aspectPolicy=cover requires an img element`);
+      } else if (getComputedStyle(node).objectFit !== "cover") {
+        errors.push(`${item.id} aspectPolicy=cover requires computed object-fit: cover`);
+      }
+    } else if (item.aspectPolicy && item.aspectPolicy !== "flexible") {
       const actualRatio = rect.height ? rect.width / rect.height : 0;
       let expectedRatio = Number(item.expectedAspectRatio);
       if (!isFinitePositive(expectedRatio) && item.aspectPolicy === "intrinsic" && node instanceof HTMLImageElement && node.naturalWidth && node.naturalHeight) {
@@ -356,7 +524,7 @@ function browserCheck(contract) {
         const relativeDelta = Math.abs(actualRatio - expectedRatio) / expectedRatio;
         const tolerance = item.aspectRatioTolerance ?? defaults.aspectRatioTolerance;
         if (relativeDelta > tolerance) {
-          errors.push(`${item.id} aspect ratio=${actualRatio} differs from ${expectedRatio} by ${(relativeDelta * 100).toFixed(2)}% (tolerance ${(tolerance * 100).toFixed(2)}%)`);
+          geometryIssues.push(`${item.id} aspect ratio=${actualRatio} differs from ${expectedRatio} by ${(relativeDelta * 100).toFixed(2)}% (tolerance ${(tolerance * 100).toFixed(2)}%)`);
         }
       }
     }
@@ -459,16 +627,45 @@ async function runBrowserCheck(target, contract, options = {}) {
     await client.send("Page.navigate", { url: resolveTarget(target) });
     const readiness = await waitForDocument(client, options.timeout || 15000);
     const response = await client.send("Runtime.evaluate", {
-      expression: `(${browserCheck.toString()})(${JSON.stringify(contract)})`,
+      expression: `(${browserCheck.toString()})(${JSON.stringify(contract)}, ${JSON.stringify(options.mode || "strict")})`,
       returnByValue: true,
     });
     if (response.exceptionDetails) throw new Error(response.exceptionDetails.text || "Browser evaluation failed");
-    return {
+    const result = {
       ...response.result.value,
       target: resolveTarget(target),
+      validationMode: options.mode || "strict",
       readiness,
       chrome,
     };
+    if (options.screenshot) {
+      const screenshot = await client.send("Page.captureScreenshot", {
+        format: "png",
+        fromSurface: true,
+        captureBeyondViewport: false,
+      });
+      const buffer = Buffer.from(screenshot.data || "", "base64");
+      const signature = buffer.subarray(0, 8).toString("hex");
+      if (signature !== "89504e470d0a1a0a" || buffer.length < 24) {
+        throw new Error("Chrome returned an invalid PNG screenshot");
+      }
+      const width = buffer.readUInt32BE(16);
+      const height = buffer.readUInt32BE(20);
+      if (width !== contract.canvas.width || height !== contract.canvas.height) {
+        throw new Error(`Screenshot ${width}x${height} differs from canvas ${contract.canvas.width}x${contract.canvas.height}`);
+      }
+      const screenshotPath = path.resolve(options.screenshot);
+      fs.mkdirSync(path.dirname(screenshotPath), { recursive: true });
+      fs.writeFileSync(screenshotPath, buffer);
+      result.screenshot = {
+        path: screenshotPath,
+        width,
+        height,
+        bytes: buffer.length,
+        sha256: createHash("sha256").update(buffer).digest("hex"),
+      };
+    }
+    return result;
   } finally {
     try { client?.close(); } catch {}
     try { child.kill("SIGKILL"); } catch { try { child.kill(); } catch {} }
@@ -488,15 +685,26 @@ async function selfTest() {
   fs.writeFileSync(htmlPath, `<!doctype html><html><head><style>
     html,body{margin:0;width:320px;height:200px;overflow:hidden}
     #canvas{position:relative;width:320px;height:200px}
-    .panel{position:absolute;left:80px;top:50px;width:160px;height:100px}
+    .background{position:absolute;inset:0;width:320px;height:200px;object-fit:cover}
+    .panel{position:absolute;left:80px;top:50px;width:160px;height:100px;color:rgb(255,116,0)}
     .person{position:absolute;left:8px;top:100px;width:40px;height:120px}
   </style></head><body><main id="canvas">
-    <div class="panel" data-figma-node-type="RECTANGLE"></div>
+    <img class="background" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="">
+    <div class="panel" data-figma-node-type="RECTANGLE" data-color-role="panel" data-expected-color="#FF7400"></div>
     <div class="person"></div>
   </main></body></html>`);
   const contract = {
     canvas: { selector: "#canvas", width: 320, height: 200 },
     elements: [
+      {
+        id: "background",
+        selector: ".background",
+        count: 1,
+        bounds: { x: 0, y: 0, width: 320, height: 200 },
+        anchor: { horizontal: "center", vertical: "center" },
+        aspectPolicy: "cover",
+        figmaType: "IMAGE",
+      },
       {
         id: "panel",
         selector: ".panel",
@@ -521,19 +729,70 @@ async function selfTest() {
     ],
   };
   try {
-    const result = await runBrowserCheck(htmlPath, contract, { timeout: 15000 });
+    const screenshotPath = path.join(directory, "fixture.png");
+    const result = await runBrowserCheck(htmlPath, contract, { timeout: 15000, screenshot: screenshotPath });
     if (!result.ok) throw new Error(`Self-test failed: ${JSON.stringify(result.errors)}`);
+    if (result.screenshot?.width !== 320 || result.screenshot?.height !== 200 || !fs.existsSync(screenshotPath)) {
+      throw new Error(`Self-test screenshot failed: ${JSON.stringify(result.screenshot)}`);
+    }
+    if (result.metrics.runtime.colorAudit?.length !== 1 || !result.metrics.runtime.colorAudit[0].matches) {
+      throw new Error(`Self-test color audit failed: ${JSON.stringify(result.metrics.runtime.colorAudit)}`);
+    }
+    const colorMismatchPath = path.join(directory, "color-mismatch.html");
+    fs.writeFileSync(colorMismatchPath, fs.readFileSync(htmlPath, "utf8").replace('data-expected-color="#FF7400"', 'data-expected-color="#333333"'));
+    const rejectedColor = await runBrowserCheck(colorMismatchPath, contract, { timeout: 15000 });
+    if (rejectedColor.ok || !rejectedColor.errors.some((message) => message.includes("Color panel="))) {
+      throw new Error(`Self-test failed to reject a computed color mismatch: ${JSON.stringify(rejectedColor)}`);
+    }
+    const containPath = path.join(directory, "background-contain.html");
+    fs.writeFileSync(containPath, fs.readFileSync(htmlPath, "utf8").replace("object-fit:cover", "object-fit:contain"));
+    const rejectedCover = await runBrowserCheck(containPath, contract, { timeout: 15000 });
+    if (rejectedCover.ok || !rejectedCover.errors.some((message) => message.includes("requires computed object-fit: cover"))) {
+      throw new Error(`Self-test failed to reject a non-cover background: ${JSON.stringify(rejectedCover.errors)}`);
+    }
     const rejectedContract = structuredClone(contract);
     rejectedContract.elements[1].count = 2;
     const rejected = await runBrowserCheck(htmlPath, rejectedContract, { timeout: 15000 });
     if (rejected.ok || !rejected.errors.some((message) => message.includes("matched 1, expected 2"))) {
       throw new Error(`Self-test failed to reject a subject-count mismatch: ${JSON.stringify(rejected.errors)}`);
     }
+    const geometryContract = structuredClone(contract);
+    geometryContract.elements[1].bounds.x = 60;
+    const rejectedGeometry = await runBrowserCheck(htmlPath, geometryContract, { timeout: 15000, mode: "strict" });
+    if (rejectedGeometry.ok || !rejectedGeometry.errors.some((message) => message.includes("panel x="))) {
+      throw new Error(`Self-test strict mode failed to reject a geometry mismatch: ${JSON.stringify(rejectedGeometry)}`);
+    }
+    const warnedGeometry = await runBrowserCheck(htmlPath, geometryContract, { timeout: 15000, mode: "delivery" });
+    if (!warnedGeometry.ok || !warnedGeometry.warnings.some((message) => message.includes("panel x="))) {
+      throw new Error(`Self-test delivery mode failed to downgrade geometry mismatch: ${JSON.stringify(warnedGeometry)}`);
+    }
+    const flexPath = path.join(directory, "flex-shrink.html");
+    fs.writeFileSync(flexPath, `<!doctype html><html><head><style>
+      html,body{margin:0;width:320px;height:200px;overflow:hidden}
+      #canvas{display:flex;flex-direction:column;width:320px;height:200px}
+      .fixed{height:140px;background:#f60}.fill{height:140px;background:#fff}
+    </style></head><body><main id="canvas">
+      <div class="fixed" data-figma-height="fixed"></div><div class="fill"></div>
+    </main></body></html>`);
+    const flexContract = {
+      canvas: { selector: "#canvas", width: 320, height: 200 },
+      elements: [{ id: "fixed", selector: ".fixed", count: 1, figmaType: "RECTANGLE" }],
+    };
+    const rejectedFlex = await runBrowserCheck(flexPath, flexContract, { timeout: 15000 });
+    if (rejectedFlex.ok || !rejectedFlex.errors.some((message) => message.includes("flex-shrink"))) {
+      throw new Error(`Self-test failed to reject Flex shrink: ${JSON.stringify(rejectedFlex.errors)}`);
+    }
     return {
       ok: true,
       selfTest: true,
       metrics: result.metrics,
+      screenshot: result.screenshot,
+      rejectedCoverErrors: rejectedCover.errors,
+      rejectedColorErrors: rejectedColor.errors,
       rejectedFixtureErrors: rejected.errors,
+      rejectedGeometryErrors: rejectedGeometry.errors,
+      deliveryGeometryWarnings: warnedGeometry.warnings,
+      rejectedFlexErrors: rejectedFlex.errors,
     };
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });

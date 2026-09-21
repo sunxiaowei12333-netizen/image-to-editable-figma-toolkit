@@ -3,7 +3,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { ensureHugeiconsDir } from "./bootstrap.mjs";
+import { ensureHugeiconsDir, validateHugeiconNames } from "./bootstrap.mjs";
 
 const CAPTURE_SCRIPT = "https://mcp.figma.com/mcp/html-to-design/capture.js";
 const PAYLOAD_SAFE_LIMIT_BYTES = 45 * 1024 * 1024;
@@ -33,14 +33,14 @@ const ATTRIBUTE_NAMES = {
 function usage(message) {
   if (message) console.error(message);
   console.error(
-    "Usage: node build_offline_capture.mjs <source.html> --width <px> --height <px> [--output <capture.html>] [--hugeicons-dir <dir>] [--asset-mode inline|external]",
+    "Usage: node build_offline_capture.mjs <source.html> --width <px> --height <px> [--output <capture.html>] [--hugeicons-dir <dir>] [--asset-mode auto|inline|external]",
   );
   process.exit(2);
 }
 
 function parseArgs(argv) {
   if (!argv.length || argv[0].startsWith("--")) usage("Missing source HTML.");
-  const options = { source: argv[0], "asset-mode": "inline" };
+  const options = { source: argv[0], "asset-mode": "auto" };
   for (let index = 1; index < argv.length; index += 1) {
     const key = argv[index];
     const value = argv[index + 1];
@@ -60,8 +60,8 @@ function parseArgs(argv) {
   if (!Number.isInteger(options.height) || options.height <= 0) {
     usage("--height must be a positive integer.");
   }
-  if (!["inline", "external"].includes(options["asset-mode"])) {
-    usage("--asset-mode must be inline or external.");
+  if (!["auto", "inline", "external"].includes(options["asset-mode"])) {
+    usage("--asset-mode must be auto, inline, or external.");
   }
   return options;
 }
@@ -208,6 +208,7 @@ async function inlineHugeicons(html, sourceDir, explicitIconDir) {
   if (!names.length) return { html, names };
   const iconResolution = await ensureHugeiconsDir(sourceDir, explicitIconDir);
   const iconDir = iconResolution.dir;
+  await validateHugeiconNames(iconDir, names);
 
   for (const name of names) {
     const svg = await renderHugeicon(name, iconDir);
@@ -407,6 +408,65 @@ function getDataUrlCharacters(html) {
   return characters;
 }
 
+function collectExternalAssetReferences(html) {
+  const references = [];
+  for (const match of html.matchAll(/url\(\s*(['"]?)(.*?)\1\s*\)/gi)) {
+    const reference = match[2];
+    if (classifyReference(reference) === "local") references.push(reference);
+  }
+  for (const match of html.matchAll(/<(?:img|source|video|audio|image)\b[^>]*>/gi)) {
+    for (const attribute of ["src", "poster", "href"]) {
+      const reference = getAttribute(match[0], attribute);
+      if (reference && classifyReference(reference) === "local") references.push(reference);
+    }
+  }
+  return references;
+}
+
+async function estimateInlinePayloadFromExternal(html, outputDir) {
+  const references = collectExternalAssetReferences(html);
+  let addedInlineBytes = 0;
+  let addedDataUrlCharacters = 0;
+  const uniqueAssets = new Map();
+
+  for (const reference of references) {
+    const filePath = resolveLocal(outputDir, reference);
+    const stat = await fs.stat(filePath);
+    if (!stat.isFile()) throw new Error(`Capture dependency is not a file: ${filePath}`);
+    const mime = MIME_TYPES.get(path.extname(filePath).toLowerCase()) ?? "application/octet-stream";
+    const dataUrlCharacters = `data:${mime};base64,`.length + 4 * Math.ceil(stat.size / 3);
+    addedInlineBytes += dataUrlCharacters - Buffer.byteLength(reference);
+    addedDataUrlCharacters += dataUrlCharacters;
+    uniqueAssets.set(filePath, stat.size);
+  }
+
+  const existingDataUrlCharacters = getDataUrlCharacters(html);
+  const estimatedInlineBytes = Buffer.byteLength(html) + addedInlineBytes;
+  const estimatedDataUrlCharacters = existingDataUrlCharacters + addedDataUrlCharacters;
+  const estimatedSerializedBytes =
+    estimatedInlineBytes + Math.round(estimatedDataUrlCharacters * DATA_URL_SERIALIZATION_MULTIPLIER);
+
+  return {
+    externalReferenceCount: references.length,
+    externalAssetCount: uniqueAssets.size,
+    externalAssetBytes: [...uniqueAssets.values()].reduce((total, size) => total + size, 0),
+    estimatedInlineBytes,
+    estimatedDataUrlCharacters,
+    estimatedSerializedBytes,
+    payloadSafeLimitBytes: PAYLOAD_SAFE_LIMIT_BYTES,
+    inlinePayloadRisk: estimatedSerializedBytes > PAYLOAD_SAFE_LIMIT_BYTES,
+  };
+}
+
+async function buildCaptureHtml(sourceHtml, sourceDir, outputDir, assetMode, options) {
+  let html = await inlineStyles(sourceHtml, sourceDir, assetMode, outputDir);
+  html = await inlineScripts(html, sourceDir);
+  html = await processMedia(html, sourceDir, assetMode, outputDir);
+  html = addCaptureBounds(html, options.width, options.height, assetMode);
+  html = addDualCaptureLoader(html);
+  return { html };
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const sourcePath = path.resolve(options.source);
@@ -416,17 +476,30 @@ async function main() {
     options.output ?? path.join(parsed.dir, `${parsed.name}-capture${parsed.ext}`),
   );
   const outputDir = path.dirname(outputPath);
-  const assetMode = options["asset-mode"];
+  const requestedAssetMode = options["asset-mode"];
   if (outputPath === sourcePath) throw new Error("Capture output must not overwrite the source HTML.");
 
-  let html = await fs.readFile(sourcePath, "utf8");
-  html = await inlineStyles(html, sourceDir, assetMode, outputDir);
-  const iconResult = await inlineHugeicons(html, sourceDir, options["hugeicons-dir"]);
-  html = iconResult.html;
-  html = await inlineScripts(html, sourceDir);
-  html = await processMedia(html, sourceDir, assetMode, outputDir);
-  html = addCaptureBounds(html, options.width, options.height, assetMode);
-  html = addDualCaptureLoader(html);
+  const iconResult = await inlineHugeicons(await fs.readFile(sourcePath, "utf8"), sourceDir, options["hugeicons-dir"]);
+  const sourceHtml = iconResult.html;
+  let assetMode = requestedAssetMode;
+  let preflightEstimate = null;
+  let buildResult;
+
+  if (requestedAssetMode === "auto") {
+    const externalCandidate = await buildCaptureHtml(sourceHtml, sourceDir, outputDir, "external", options);
+    preflightEstimate = await estimateInlinePayloadFromExternal(externalCandidate.html, outputDir);
+    if (preflightEstimate.inlinePayloadRisk) {
+      assetMode = "external";
+      buildResult = externalCandidate;
+    } else {
+      assetMode = "inline";
+      buildResult = await buildCaptureHtml(sourceHtml, sourceDir, outputDir, "inline", options);
+    }
+  } else {
+    buildResult = await buildCaptureHtml(sourceHtml, sourceDir, outputDir, assetMode, options);
+  }
+
+  const { html } = buildResult;
   await fs.writeFile(outputPath, html, "utf8");
 
   const outputStat = await fs.stat(outputPath);
@@ -435,6 +508,7 @@ async function main() {
     outputStat.size + Math.round(dataUrlCharacters * DATA_URL_SERIALIZATION_MULTIPLIER);
   const officialPayloadRisk =
     assetMode === "inline" && estimatedSerializedBytes > PAYLOAD_SAFE_LIMIT_BYTES;
+  const inlinePayloadRisk = preflightEstimate?.inlinePayloadRisk ?? officialPayloadRisk;
   console.log(
     JSON.stringify(
       {
@@ -444,14 +518,28 @@ async function main() {
         width: options.width,
         height: options.height,
         mode: "dual-capture",
+        requestedAssetMode,
         assetMode,
+        assetModeSelection:
+          requestedAssetMode === "auto"
+            ? inlinePayloadRisk
+              ? "preflight-estimate-exceeded-safe-limit"
+              : "preflight-estimate-within-safe-limit"
+            : "explicit",
         hugeicons: iconResult.names,
         bytes: outputStat.size,
         dataUrlCharacters,
         estimatedSerializedBytes,
         payloadSafeLimitBytes: PAYLOAD_SAFE_LIMIT_BYTES,
         officialPayloadRisk,
-        recommendedAssetMode: officialPayloadRisk ? "external" : assetMode,
+        inlinePayloadRisk,
+        preflightEstimate,
+        recommendedAssetMode:
+          requestedAssetMode === "auto"
+            ? assetMode
+            : officialPayloadRisk
+              ? "external"
+              : assetMode,
       },
       null,
       2,

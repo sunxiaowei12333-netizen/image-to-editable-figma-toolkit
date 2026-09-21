@@ -1,9 +1,32 @@
 {
-  "version": "1.1.2",
-  "publishedAt": "2026-09-10T15:16:52+08:00",
-  "contentSha256": "64709c3fb9bbb5adbb3681aefd2d3a9d8ea1fe7ef1309017a7669ec2d58fc0c3",
+  "name": "image-to-editable-figma",
+  "version": "1.2.0-local-promoted.1",
+  "status": "local-promoted",
+  "createdAt": "2026-09-18",
+  "forkedFrom": {
+    "name": "image-to-editable-figma-lab-backup",
+    "skillSha256": "55d6585fe666346d720815745351b6b79cc8331507115469ce76c556a7573ea9"
+  },
+  "contentSha256": "358035f5ec5a540c66244db0eba2fcea9e19b94b1ff6c3943b40309c4e453549",
   "changes": [
-    "将主 Skill 的中文展示名统一调整为“图片转 Figma”",
-    "保留英文调用名 image-to-editable-figma，兼容现有安装、更新与显式调用方式"
-  ]
+    "默认一次带安全纯色底生成再抠图；受控纠正仅用于明确失败",
+    "有效像素首选2倍最低1.5倍；100%整体加风险部位局部放大",
+    "HTML阶段字体字号字色图标色、自动行高、零字距和偶数整数透明度",
+    "完整本地规范色板；独立测试计时；迁移前保留原正式版副本",
+    "结构化生图契约、固定共用提示词、生成前尺寸校验；路线/画质/几何分项验收；兼容历史清单",
+    "Flex 主轴固定尺寸双重防收缩；构图检查与最终截图合并为单次隔离浏览器加载；区分内部计时与 Codex UI 总用时",
+    "文字和图标使用 ΔE00 最近规范色与彩色转灰保护；无接近色时保留参考色",
+    "Capture 构建前自动选择 Inline 或 External；普通交付的不可见几何数值偏差降为 warning；字体、颜色和资源隔离合并进一次浏览器 QA",
+    "提前核验 Hugeicons 导出名，区分包缺失和名称错误；自动模式只渲染一次图标",
+    "修正构图 CLI 示例；复用未变化清单的预检与单次浏览器截图，合并相邻命令",
+    "视觉验收直接对照原图，记录原图/证据哈希；兼容旧版记录",
+    "局部参考输入；冻结原图目标与实际可见边界分开；比例同时报告像素和百分比",
+    "图片素材在正常尺寸下轻微明暗及人物细节可接受",
+    "普通delivery明显比例或整体颜色失败最多一次受控纠正；实验首次稳定性不使用纠正结果",
+    "恢复已确认的文字与图标颜色规范；图片比例及整体偏色纠正不扩展到文字",
+    "普通 delivery 严重 Alpha 失败支持有明确方向的默认一次受控纠正；按实际提取色域判断色键冲突；总计两次上限、实验单次与质量门槛保持不变",
+    "备份优化版迁移为正式调用入口；原正式版保留为 image-to-editable-figma-formal-copy"
+  ],
+  "updatedAt": "2026-09-20",
+  "validationScope": "Scoped instruction update for severe Alpha retry and color-key conflict assessment. Extraction algorithms and thresholds unchanged. Skill validation and existing regression results are recorded in the alpha-retry-20260920-c71a update audit; no new image generation or Figma import validation."
 }

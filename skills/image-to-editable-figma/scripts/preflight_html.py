@@ -79,7 +79,9 @@ RESOURCE_SOURCE_METHODS = {
     "new-generation",
     "native-rebuild",
     "library-asset",
+    "approved-cache",
 }
+EXECUTION_PROFILES = {"cold-start", "warm-reuse"}
 REUSE_SOURCE_METHODS = {"clean-crop", "reliable-separation"}
 BASE_REUSE_EVIDENCE_FIELDS = {
     "completeVisibleBounds",
@@ -94,6 +96,19 @@ SEPARATION_EVIDENCE_FIELDS = {
 ROUTING_EXCEPTION_TYPES = {
     "user_requires_internal_editing",
     "verified_layered_vector_source",
+}
+NATIVE_REBUILD_EVIDENCE_FIELDS = {
+    "primitiveGeometryOnly",
+    "noMaterialTexture",
+    "noIrregularOrnament",
+    "noPreciseMaterialLighting",
+}
+CACHE_HASH_FIELDS = {
+    "sourceReferenceSha256",
+    "sourceAssetSha256",
+    "baselineManifestSha256",
+    "approvalFingerprintSha256",
+    "currentCopySha256",
 }
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
 
@@ -132,6 +147,94 @@ def validate_resolution_evidence(
             )
 
 
+def validate_native_rebuild_evidence(
+    asset: dict[str, object], label: str, errors: list[str]
+) -> None:
+    """Require affirmative evidence before any visual atom is rebuilt natively."""
+    if asset.get("sourceMethod") != "native-rebuild":
+        return
+    evidence = asset.get("nativeRebuildEvidence")
+    if not isinstance(evidence, dict):
+        errors.append(f"{label}.nativeRebuildEvidence must be an object for native-rebuild")
+        return
+    for field in sorted(NATIVE_REBUILD_EVIDENCE_FIELDS):
+        if evidence.get(field) is not True:
+            errors.append(f"{label}.nativeRebuildEvidence.{field} must be true")
+    note = evidence.get("inspectionNote")
+    if not isinstance(note, str) or not note.strip():
+        errors.append(f"{label}.nativeRebuildEvidence.inspectionNote must be a non-empty string")
+    signals = asset.get("complexitySignals")
+    if isinstance(signals, list) and signals:
+        errors.append(
+            f"{label} cannot use native-rebuild while complexitySignals are present: {sorted(set(signals))}"
+        )
+
+
+def validate_cache_evidence(
+    asset: dict[str, object],
+    label: str,
+    execution_profile: object,
+    reference_hashes: set[str],
+    manifest_dir: Path,
+    errors: list[str],
+) -> None:
+    """Permit warm reuse only from one explicitly approved, byte-verified source."""
+    if asset.get("sourceMethod") != "approved-cache":
+        return
+    if execution_profile != "warm-reuse":
+        errors.append(f"{label} approved-cache is only allowed in executionProfile='warm-reuse'")
+    if asset.get("expectedFigmaType") != "IMAGE":
+        errors.append(f"{label} approved-cache must keep expectedFigmaType='IMAGE'")
+    evidence = asset.get("cacheEvidence")
+    if not isinstance(evidence, dict):
+        errors.append(f"{label}.cacheEvidence must be an object for approved-cache")
+        return
+    for field in sorted(CACHE_HASH_FIELDS):
+        value = evidence.get(field)
+        if not isinstance(value, str) or not SHA256_RE.fullmatch(value):
+            errors.append(f"{label}.cacheEvidence.{field} must be 64 lowercase hex characters")
+    source_reference_sha = evidence.get("sourceReferenceSha256")
+    if isinstance(source_reference_sha, str) and source_reference_sha not in reference_hashes:
+        errors.append(f"{label}.cacheEvidence.sourceReferenceSha256 must match the current reference")
+    for field in ("currentAlphaRevalidated", "currentResolutionRevalidated"):
+        if evidence.get(field) is not True:
+            errors.append(f"{label}.cacheEvidence.{field} must be true")
+
+    file_pairs = (
+        ("baselineManifestPath", "baselineManifestSha256"),
+        ("approvalFingerprintPath", "approvalFingerprintSha256"),
+        ("currentCopyPath", "currentCopySha256"),
+    )
+    resolved: dict[str, Path] = {}
+    for path_field, hash_field in file_pairs:
+        raw_path = evidence.get(path_field)
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            errors.append(f"{label}.cacheEvidence.{path_field} must be a non-empty absolute path")
+            continue
+        path = Path(raw_path).expanduser()
+        resolved[path_field] = path
+        if not path.is_absolute():
+            errors.append(f"{label}.cacheEvidence.{path_field} must be absolute")
+        elif not path.is_file():
+            errors.append(f"{label}.cacheEvidence.{path_field} not found: {path}")
+        else:
+            expected = evidence.get(hash_field)
+            if isinstance(expected, str) and SHA256_RE.fullmatch(expected):
+                actual = sha256_file(path)
+                if actual != expected:
+                    errors.append(
+                        f"{label}.cacheEvidence.{hash_field} mismatch: expected {expected}, got {actual}"
+                    )
+    current_copy = resolved.get("currentCopyPath")
+    if current_copy is not None and current_copy.is_absolute():
+        try:
+            current_copy.resolve().relative_to(manifest_dir.resolve())
+        except ValueError:
+            errors.append(f"{label}.cacheEvidence.currentCopyPath must be inside the current version directory")
+    if evidence.get("sourceAssetSha256") != evidence.get("currentCopySha256"):
+        errors.append(f"{label}.cacheEvidence.currentCopySha256 must equal sourceAssetSha256")
+
+
 def attrs_dict(attrs: list[tuple[str, str | None]]) -> dict[str, str]:
     return {key.lower(): value or "" for key, value in attrs}
 
@@ -168,6 +271,8 @@ class CaptureHTMLParser(HTMLParser):
         self.node_type_errors: list[str] = []
         self.node_type_counts: dict[str, int] = {}
         self.layout_nodes: list[tuple[str, dict[str, str]]] = []
+        self.fixed_flex_errors: list[str] = []
+        self.fixed_flex_checked_count = 0
         self.icon_nodes: list[tuple[str, dict[str, str]]] = []
         self.resource_nodes: dict[str, list[tuple[str, dict[str, str]]]] = {}
         self.icon_count = 0
@@ -204,6 +309,10 @@ class CaptureHTMLParser(HTMLParser):
 
         icon_name = item.get("data-icon-name")
         icon_library = item.get("data-icon-library")
+        if (item.get("data-library-origin", "").lower() == "hugeicons" or item.get("data-icon-key")) and not (icon_name and icon_library):
+            self.icon_errors.append(
+                "Icon Library provenance must use data-icon-library and data-icon-name; aliases cannot bypass export validation"
+            )
         if icon_name or icon_library:
             self.icon_count += 1
             self.icon_nodes.append((tag, item))
@@ -213,6 +322,25 @@ class CaptureHTMLParser(HTMLParser):
                 )
 
         classes = set(item.get("class", "").lower().split())
+        if self.stack:
+            parent_attrs = self.stack[-1][1]
+            parent_layout = parent_attrs.get("data-figma-layout", "").strip().lower()
+            width_mode = item.get("data-figma-width", "").strip().lower()
+            height_mode = item.get("data-figma-height", "").strip().lower()
+            style = item.get("style", "")
+            is_absolute = "f-absolute" in classes or bool(
+                re.search(r"(?:^|;)\s*position\s*:\s*absolute(?:\s*;|$)", style, re.I)
+            )
+            fixed_on_main_axis = (
+                parent_layout in {"row", "wrap"} and width_mode == "fixed"
+            ) or (parent_layout == "column" and height_mode == "fixed")
+            if fixed_on_main_axis and not is_absolute:
+                self.fixed_flex_checked_count += 1
+                if "f-fixed" not in classes:
+                    self.fixed_flex_errors.append(
+                        f"{element_label(tag, item)} is fixed on the parent {parent_layout} "
+                        "main axis and must use class f-fixed to prevent Flex shrink"
+                    )
         looks_like_ui_icon = any("icon" in token for token in classes) and not any(
             marker in token
             for token in classes
@@ -372,6 +500,11 @@ def validate_resource_manifest(
 
     if manifest.get("schemaVersion") != 3:
         errors.append("Resource manifest schemaVersion must be 3")
+    execution_profile = manifest.get("executionProfile")
+    if execution_profile not in EXECUTION_PROFILES:
+        errors.append(
+            f"Resource manifest executionProfile must be one of {sorted(EXECUTION_PROFILES)}"
+        )
 
     generation_policy = manifest.get("generationPolicy")
     if not isinstance(generation_policy, dict):
@@ -517,6 +650,16 @@ def validate_resource_manifest(
             if unknown_signals:
                 errors.append(f"{label} has unsupported complexity signals: {unknown_signals}")
 
+        validate_native_rebuild_evidence(asset, label, errors)
+        validate_cache_evidence(
+            asset,
+            label,
+            execution_profile,
+            seen_reference_hashes,
+            manifest_path.parent,
+            errors,
+        )
+
         expected_type_raw = asset.get("expectedFigmaType")
         expected_type = expected_type_raw.upper() if isinstance(expected_type_raw, str) else ""
         if expected_type not in FIGMA_NODE_TYPES:
@@ -627,6 +770,7 @@ def validate_resource_manifest(
             "resource_manifest": str(manifest_path),
             "composition_contract": str(contract_path),
             "resource_manifest_schema_version": manifest.get("schemaVersion"),
+            "execution_profile": execution_profile,
             "resource_manifest_asset_count": len(assets),
             "resource_manifest_image_route_count": image_route_count,
             "resource_manifest_complex_route_count": complex_route_count,
@@ -771,6 +915,8 @@ def run(
                     f"{label} must declare data-figma-height as fixed/hug/fill"
                 )
 
+        errors.extend(parser.fixed_flex_errors)
+
         flow_layout_count = sum(
             attrs.get("data-figma-layout", "").strip().lower() in {"row", "column", "wrap"}
             for _, attrs in parser.layout_nodes
@@ -836,6 +982,7 @@ def run(
             ),
             "figma_layout_version": layout_version or "legacy",
             "semantic_layout_marker_count": len(parser.layout_nodes),
+            "fixed_flex_guard_count": parser.fixed_flex_checked_count,
             "semantic_layout_counts": {
                 layout: sum(
                     attrs.get("data-figma-layout", "").strip().lower() == layout

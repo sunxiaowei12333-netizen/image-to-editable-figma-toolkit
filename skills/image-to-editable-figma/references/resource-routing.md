@@ -11,6 +11,8 @@
 ```json
 {
   "schemaVersion": 3,
+  "executionProfile": "cold-start",
+  "deliveryPromptPlanVersion": 1,
   "generationPolicy": {
     "scope": "per-visual-atom",
     "defaultHighQualityCallsPerAtom": 1,
@@ -47,13 +49,28 @@
 `sourceMethod` 必须使用以下规范值之一：
 
 - `provided-original`：用户提供的独立原始素材；
-- `clean-crop`：从参考图无损裁切边界完整的矩形内容；
+- `clean-crop`：从参考图无损裁切边界完整的矩形内容；头像照片允许裁切后用原生圆形蒙版显示，但必须记录蒙版及其有效区域，确认有效区域内没有外圈、背景或相邻 UI。蒙版外像素不能作为可见内容复用，清晰度证据也按有效区域计算；这不授权对头发或人物轮廓作复杂分离。
 - `reliable-separation`：从合成图可靠分离非矩形视觉原子；
 - `localized-repair`：只修补遮挡或缺失局部，仍输出完整图片原子；
 - `reference-guided-edit`：以参考图编辑/重建完整视觉原子；
 - `new-generation`：从零生成新的完整图片资源；
 - `native-rebuild`：用原生形状、Text 或已批准的 Vector 重建简单元素；
 - `library-asset`：使用 Hugeicons 等已要求的库资源。
+- `approved-cache`：仅 `warm-reuse` 可用；从精确相同参考图、已审批指纹和已验证资产哈希构成的可信链复制到当前版本目录，当前副本仍重新检查 Alpha 与有效倍率。
+
+选择 `native-rebuild` 时，必须加入如下肯定证据；只写“看起来简单”不能通过：
+
+```json
+"nativeRebuildEvidence": {
+  "primitiveGeometryOnly": true,
+  "noMaterialTexture": true,
+  "noIrregularOrnament": true,
+  "noPreciseMaterialLighting": true,
+  "inspectionNote": "规则几何、纯色/普通渐变，无材质边缘和固有装饰"
+}
+```
+
+只要 `complexitySignals` 非空就不能使用 `native-rebuild`。这条回归门专门防止木质牌板、金属/纸张画框、不规则装饰因“可以用矩形近似”而被降级；规则卡片、按钮和表单仍可在证据成立时原生重建。
 
 选择 `clean-crop` 时，资源项必须加入：
 
@@ -69,7 +86,7 @@
 }
 ```
 
-`effectiveResolutionScale` 记录宽、高两个方向中更低的实测有效倍率。`2×` 是首选，`1.5×–<2×` 属于可接受的“接近 2×”，因此 `effectiveResolutionAtLeast1_5x=true`、`effectiveResolutionAtLeast2x=false` 可以通过资源计划；最终仍必须完成标准画布 `100%`/`200%` 清晰度检查。旧清单中仅有 `effectiveResolutionAtLeast2x=true` 时继续兼容并视为倍率至少 `2×`；新清单不得省略实测倍率。
+`effectiveResolutionScale` 记录宽、高两个方向中更低的实测有效倍率。`2×` 是首选，`1.5×–<2×` 属于可接受的“接近 2×”，因此 `effectiveResolutionAtLeast1_5x=true`、`effectiveResolutionAtLeast2x=false` 可以通过资源计划；最终仍必须完成标准画布 `100%` 整体与高风险区域局部放大 清晰度检查。旧清单中仅有 `effectiveResolutionAtLeast2x=true` 时继续兼容并视为倍率至少 `2×`；新清单不得省略实测倍率。
 
 选择 `reliable-separation` 时，除上述字段外还必须全部为 true：
 
@@ -81,13 +98,18 @@
 
 除表示首选状态的 `effectiveResolutionAtLeast2x` 可为 false 外，任一必需布尔值为 false、最低实测倍率小于 `1.5`、字段缺失或 `inspectionNote` 为空，都说明当前方法没有足够证据，资源计划预检必须失败并改用清单中更可靠的图片方法。复杂度信号本身不意味着一律生成：如果独立原始素材或裁切/分离证据确实全部成立，仍可复用；但“节省时间、控制生成数量、先做出来看看”不能代替证据。
 
+普通 `delivery` 使用 `deliveryPromptPlanVersion: 1`、无 `labGenerationContractVersion` 的 schema v3 清单。它只做一次当前参考图目标边界判断；`generation_contract.py delivery-plan` 内部运行一次完整资源预检并冻结最终提示词。不得把“无需实验两遍测量”误解为可以手写、临时改写或重复生成提示词。只有用户明确要求 `rule-regression` 或 `fresh-generation-stability` 时，才按 [生图契约](generation-contract.md) 写入 `labGenerationContractVersion: 2`、生成原因、两遍测量证据和尺寸契约，再冻结实验计划，并以对应实验 `--mode` 运行预检。版本 1 和无标记清单只兼容历史实验读取，不能冒充新的实验轮次。
+
 资源清单写完后、生成素材或编写 HTML 前运行：
 
 ```bash
-python3 scripts/preflight_resource_plan.py <resource-manifest.json>
+python3 scripts/generation_contract.py delivery-plan \
+  <resource-manifest.json> --out <delivery-generation-plan.json>
 ```
 
-通过后再执行资源生成。该预检不判断最终视觉质量；资源落盘后仍按主 Skill 完成分辨率、Alpha、材质和 `100%`/`200%` 检查。
+`warm-reuse` 或已存在精确 SHA 决策基线时，在命令末尾追加 `--baseline-manifest <trusted-baseline.json>`。
+
+通过后再执行资源生成。该预检不判断最终视觉质量；资源落盘后仍按主 Skill 完成分辨率、Alpha、材质和 `100%` 整体与高风险区域局部放大 检查。
 
 ## 3. 窄范围强制图片类型
 
@@ -133,13 +155,17 @@ python3 scripts/preflight_resource_plan.py <resource-manifest.json>
 
 ## 4. 图片失败不能改变语义类型
 
-资源清单一旦把对象确定为 `IMAGE`，后续只能切换图片取得方法：独立原始素材、干净裁切、可靠透明提取、局部修补、参考图图片编辑或重新生成。每个 `fallbacks[].figmaType` 必须仍为 `IMAGE`。
+资源清单一旦把对象确定为 `IMAGE`，后续只能切换图片取得方法：独立原始素材、干净裁切、可靠透明提取、对同一文件确定性局部修补；默认只作一次参考图生成/重型编辑；仅普通 delivery 中已确认的明显比例、整体颜色或严重 Alpha 失败，可按[受控纠正](composition-fidelity.md#受控纠正)追加一次，其余情况不得再生成。执行前错误的豁免与执行状态不明时的处理沿用主 Skill“强制约束”的失败计数规则；不能仅凭未取得文件重置次数。每个 `fallbacks[].figmaType` 必须仍为 `IMAGE`。
 
 若所有合规图片方案都失败，保留失败证据并报告阻塞；不得把 `expectedFigmaType` 改成 VECTOR/RECTANGLE，不得用 CSS、内联 SVG 或近似几何静默交付。
 
 ## 5. 精确相同参考图的决策复用
 
-新任务仍创建独立目录，不复制或覆盖历史 HTML、CSS、图片和 Figma 节点。若当前对话明确提供了一个已通过用户审批的历史 `resource-manifest.json`，或当前输出根目录存在按精确 SHA-256 建立的可信决策索引，并且参考图 SHA-256 完全相同，可以复用其中的 `kind / complexitySignals / expectedFigmaType` 作为硬证据；素材文件、布局数值和生成结果仍在当前任务独立产生并重新验收。
+新任务仍创建独立目录，不复制或覆盖历史 HTML、CSS、图片和 Figma 节点。`cold-start` 不扫描其他任务、历史对话或输出目录。只有本轮明确使用 `warm-reuse`，且当前任务已获得一个精确 SHA-256 相同、带用户审批指纹的可信基线时，才可复用决策或已审批资产；候选来源必须由用户当前提供或可信索引直接命中，禁止为寻找候选遍历历史任务。
+
+同一参考 SHA 一旦有可信基线，`kind / complexitySignals / expectedFigmaType / sourceMethod / editableInternals` 就是冻结决策。预检必须带 `--baseline-manifest <baseline-resource-manifest.json>`；有任何漂移就停止，除非先形成一份明确的新证据并建立新的基线，不能在当前候选里静默改路由。`approved-cache` 还必须记录并通过 `sourceReferenceSha256 / sourceAssetSha256 / baselineManifestPath+Sha256 / approvalFingerprintPath+Sha256 / currentCopyPath+Sha256 / currentAlphaRevalidated / currentResolutionRevalidated`；当前副本必须位于本轮版本目录，且字节哈希与批准资产一致。
+
+当本轮明确为 `fresh-generation-stability`，还可以复用同一精确 SHA 下可信基线计划的**输入元数据**，用于 `generation_contract.py compare` 固定视觉原子、测量证据哈希、提示词、画布、主体边界、触边和几何策略。不得由此读取、复制或展示历史生成图片，也不得把历史像素计为本轮生成；比较不通过就不是同条件测试。
 
 不得按文件名、视觉相似度或模板猜测自动复用，也不得为寻找候选而扫描任意历史 HTML 和资源目录。相似但哈希不同的设计最多把历史分类作为人工参考，必须按当前画面重新确认。
 
@@ -158,6 +184,7 @@ python3 scripts/preflight_html.py <html> \
 - 参考图路径与 SHA-256 一致；
 - `generationPolicy` 明确按单个视觉原子限制重复调用，不存在整页生成数量上限；
 - `sourceMethod` 使用规范值，裁切/分离路由的 `reuseEvidence` 全部通过；
+- `executionProfile` 明确，`native-rebuild` 和 `approved-cache` 的专属证据全部通过；
 - 资源 ID 唯一，HTML 中每项恰有预期数量的 `data-resource-id`；
 - `IMAGE` 对应直接 `<img>`，DOM 节点类型与 `expectedFigmaType` 一致；
 - 默认图片类型和复杂度信号没有被降级；

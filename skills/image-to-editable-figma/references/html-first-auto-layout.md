@@ -46,7 +46,7 @@ data-figma-height="fixed|hug|fill"
 - 用 `gap` 表达同级间距，用 `padding` 表达容器内边距；不要用子节点 `left/top` 或空白节点模拟。
 - 需要精确还原固定稿时，可在 Flex 容器和子节点上保留明确宽高；使用 Flex 不等于强制响应式。
 - 背景、人物、装饰底纹、星星、角标、轨道填充和其他真实重叠关系使用 `overlay`/`f-absolute`。
-- 图片、图标和不应被压缩的固定元素使用 `f-fixed`；UI 图标同时使用 `f-icon` 并明确 `--figma-icon-size`。
+- 图片、图标和不应被压缩的固定元素使用 `f-fixed`；Flex 容器的直接子节点只要在主轴声明 `data-figma-width="fixed"`（row/wrap）或 `data-figma-height="fixed"`（column），就必须同时使用 `f-fixed`，不得依赖浏览器默认 shrink；UI 图标同时使用 `f-icon` 并明确 `--figma-icon-size`。
 - 可伸缩的中间区域使用 `f-fill` 和 `min-width: 0`；不要让文本或图片依赖浏览器默认 shrink。
 - 可见底板继续作为独立 Rectangle 语义节点；Auto Layout 容器保持透明，不用容器 fill 代替底板。
 - 页面原有交互绑定在语义元素上，不因布局重构增加透明包装层或改变事件目标。
@@ -75,7 +75,7 @@ data-figma-height="fixed|hug|fill"
 ## Capture 与终检
 
 - Capture 前运行 `scripts/preflight_html.py <html> --manifest <resource-manifest.json> --contract <composition-contract.json>`；V2 的资源路由、布局标记、模板类、尺寸语义和图标固定尺寸不正确时先修 HTML。
-- 在同一目标尺寸页面运行 `scripts/check_composition.mjs <URL> <composition-contract.json>`；数量、锚点、边界、锁定比例、层级或必需属性出现 error 时禁止 Capture。脚本通过后仍需对照参考图核对契约本身是否量错。
+- 普通交付在同一目标尺寸页面运行 `scripts/check_composition.mjs <URL> <composition-contract.json> --mode delivery --output <report.json> --screenshot <preview.png>`；实验模式省略 `--mode delivery` 并保持 strict。同一次隔离浏览器加载必须完成数量、锚点、边界、锁定比例、层级、必需属性、字体、图片、滚动和 Flex 固定尺寸的运行时检查，并保存最终截图。数量、可见性、层级、必需属性、资源/字体加载和 Flex error 时禁止 Capture；delivery 中纯边界、锚点或比例数值越界只记 warning，由同一张 `100%` 截图确认可见问题后才阻断。脚本通过后仍需人工对照参考图核对契约本身是否量错，不能以脚本代替视觉判断。
 - Capture 后只处理返回的目标子树。先记录候选容器和子节点的宽高，再将 `row/column/wrap` 规范化为 Auto Layout。
 - 装饰底板和叠层子节点在 Auto Layout 中设为绝对定位；不要把轨道填充、插画叠层强行改成流式排列。
 - 每个模块规范化后恢复其 Fixed/Hug/Fill 语义，并检查子节点越界、文本换行、图标尺寸和整体截图。

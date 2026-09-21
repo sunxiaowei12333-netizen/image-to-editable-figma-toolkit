@@ -162,6 +162,27 @@ export async function ensureHugeiconsDir(startDir, explicitDir) {
   return { ...initialized, initialized: true };
 }
 
+export async function validateHugeiconNames(iconDir, names) {
+  const missing = [];
+  for (const name of new Set(names)) {
+    if (!/^[A-Za-z][A-Za-z0-9]*$/.test(name)) {
+      throw new Error(`Invalid Hugeicons export name: ${name}`);
+    }
+    try {
+      await fs.access(path.join(iconDir, `${name}.js`));
+    } catch {
+      missing.push(name);
+    }
+  }
+  if (missing.length) {
+    throw new Error(
+      `Hugeicons package exists at ${iconDir}, but these exports are missing: ${missing.join(", ")}. ` +
+      "Select actual export names from this package (for example Idea01Icon). " +
+      "Do not reinstall the package or remove data-icon-library/data-icon-name to bypass validation.",
+    );
+  }
+}
+
 async function commandStatus(command, args) {
   try {
     const { stdout } = await execFileAsync(command, args, {
@@ -214,6 +235,11 @@ function parseCliArgs(argv) {
       options.mode = "check";
     } else if (argument === "--ensure-hugeicons") {
       options.mode = "ensure-hugeicons";
+    } else if (argument === "--icons") {
+      const value = argv[++index];
+      if (!value || value.startsWith("--")) throw new Error("--icons requires comma-separated export names.");
+      options.icons = value.split(",").map((name) => name.trim()).filter(Boolean);
+      if (!options.icons.length) throw new Error("--icons requires at least one export name.");
     } else if (argument === "--extension-onboarding-status") {
       options.mode = "extension-onboarding-status";
     } else if (argument === "--mark-extension-onboarding") {
@@ -230,6 +256,9 @@ function parseCliArgs(argv) {
     } else {
       throw new Error(`Unknown option: ${argument}`);
     }
+  }
+  if (options.icons && options.mode !== "ensure-hugeicons") {
+    throw new Error("--icons must be used with --ensure-hugeicons.");
   }
   return options;
 }
@@ -296,7 +325,8 @@ async function main() {
   }
   if (options.mode === "ensure-hugeicons") {
     const result = await ensureHugeiconsDir(options.sourceDir);
-    console.log(JSON.stringify({ ok: true, hugeicons: result }, null, 2));
+    if (options.icons) await validateHugeiconNames(result.dir, options.icons);
+    console.log(JSON.stringify({ ok: true, hugeicons: result, icons: options.icons || [] }, null, 2));
     return;
   }
   await runCheck(options.sourceDir);

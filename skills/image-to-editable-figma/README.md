@@ -1,5 +1,7 @@
 # 图片转 Figma
 
+调用 `$image-to-editable-figma`。这是由 2026-09-20 备份优化版迁移而来的当前正式入口；原正式版保留在 `image-to-editable-figma-formal-copy`，仅用于回滚和对照。测试规则与完整本地色板见 `references/lab-test-protocol.md` 和 `references/html-basic-standards.md`。每次任务分别记录生成、抠图、HTML 和检查的实际耗时，不预先承诺提速。现有稳定预览服务保持原身份与端口，正式任务目录使用 `image-to-editable-figma` 标识，不覆盖历史产物。
+
 ## 团队安装
 
 从 GitHub 下载或克隆后，请把完整的 `image-to-editable-figma/` 目录复制到每位用户的 Codex Skills 目录，例如：
@@ -62,8 +64,10 @@ node scripts/preview-service.mjs uninstall
 需要提前初始化时可手动执行：
 
 ```bash
-node scripts/bootstrap.mjs --ensure-hugeicons
+node scripts/bootstrap.mjs --ensure-hugeicons --source-dir <version-dir> --icons Idea01Icon,Mic01Icon
 ```
+
+图标名必须是当前包的真实导出名；包存在但导出不存在时修正图标名，不重装、不删溯源标记。
 
 不要把 `tooling/node_modules`、`package-lock.json` 或本机状态文件提交到 GitHub。
 

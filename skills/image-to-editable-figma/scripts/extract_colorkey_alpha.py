@@ -620,7 +620,8 @@ def main() -> None:
                 "dark_light_edge_review": True,
                 "protected_detail_review": True,
                 "internal_alpha_island_review": True,
-                "final_background_100_200_review": True,
+                "final_background_100_review": True,
+                "risk_based_local_zoom_review": True,
             },
         }
         if args.qa_dir:

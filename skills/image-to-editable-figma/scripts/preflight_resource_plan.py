@@ -6,10 +6,12 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from generation_contract import validate_contract, validate_delivery_prompt_contract
 
 from preflight_html import (
     BASE_REUSE_EVIDENCE_FIELDS,
     COMPLEXITY_SIGNALS,
+    EXECUTION_PROFILES,
     FIGMA_NODE_TYPES,
     IMAGE_REQUIRED_KINDS,
     RESOURCE_SOURCE_METHODS,
@@ -21,12 +23,26 @@ from preflight_html import (
     read_json_object,
     sha256_file,
     validate_resolution_evidence,
+    validate_cache_evidence,
+    validate_native_rebuild_evidence,
 )
+
+
+DELIVERY_MODE = "delivery"
+EXPERIMENT_MODES = {"rule-regression", "fresh-generation-stability"}
+
+
+def generation_contract_required_for_mode(mode: str) -> bool:
+    if mode == DELIVERY_MODE:
+        return False
+    if mode in EXPERIMENT_MODES:
+        return True
+    raise ValueError(f"Unsupported test mode: {mode}")
 
 
 def validate_reference_items(
     manifest: dict[str, object], errors: list[str], warnings: list[str]
-) -> None:
+) -> set[str]:
     reference = manifest.get("reference")
     references = manifest.get("references")
     if isinstance(reference, dict) and references is None:
@@ -37,7 +53,7 @@ def validate_reference_items(
         errors.append(
             "Resource manifest must contain either one reference object or a non-empty references array"
         )
-        return
+        return set()
 
     seen_hashes: set[str] = set()
     for index, item in enumerate(items):
@@ -66,6 +82,7 @@ def validate_reference_items(
                 errors.append(
                     f"{label} SHA-256 mismatch: expected {expected_sha}, got {actual_sha}"
                 )
+    return seen_hashes
 
 
 def validate_generation_policy(manifest: dict[str, object], errors: list[str]) -> None:
@@ -105,7 +122,13 @@ def validate_reuse_evidence(
     validate_resolution_evidence(evidence, f"{label}.reuseEvidence", errors)
 
 
-def validate_assets(manifest: dict[str, object], errors: list[str]) -> dict[str, int]:
+def validate_assets(
+    manifest: dict[str, object],
+    manifest_path: Path,
+    reference_hashes: set[str],
+    execution_profile: object,
+    errors: list[str],
+) -> dict[str, int]:
     assets = manifest.get("assets")
     if not isinstance(assets, list) or not assets:
         errors.append("assets must be a non-empty array")
@@ -174,6 +197,15 @@ def validate_assets(manifest: dict[str, object], errors: list[str]) -> dict[str,
         if isinstance(source_method, str) and source_method in REUSE_SOURCE_METHODS:
             reuse_count += 1
         validate_reuse_evidence(asset, source_method, label, errors)
+        validate_native_rebuild_evidence(asset, label, errors)
+        validate_cache_evidence(
+            asset,
+            label,
+            execution_profile,
+            reference_hashes,
+            manifest_path.parent,
+            errors,
+        )
 
         if not isinstance(asset.get("compositionId"), str) or not asset["compositionId"].strip():
             errors.append(f"{label}.compositionId must be a non-empty string")
@@ -206,7 +238,63 @@ def validate_assets(manifest: dict[str, object], errors: list[str]) -> dict[str,
     }
 
 
-def run(manifest_path: Path) -> dict[str, object]:
+RESOURCE_DECISION_FIELDS = (
+    "kind",
+    "complexitySignals",
+    "expectedFigmaType",
+    "sourceMethod",
+    "editableInternals",
+)
+
+
+def resource_decision_projection(manifest: dict[str, object]) -> dict[str, object]:
+    references = manifest.get("references")
+    if references is None:
+        references = [manifest.get("reference")]
+    hashes = sorted(
+        item.get("sha256")
+        for item in references
+        if isinstance(item, dict) and isinstance(item.get("sha256"), str)
+    )
+    assets = {}
+    raw_assets = manifest.get("assets")
+    if isinstance(raw_assets, list):
+        for asset in raw_assets:
+            if not isinstance(asset, dict) or not isinstance(asset.get("id"), str):
+                continue
+            projected = {field: asset.get(field) for field in RESOURCE_DECISION_FIELDS}
+            signals = projected.get("complexitySignals")
+            if isinstance(signals, list):
+                projected["complexitySignals"] = sorted(signals)
+            assets[asset["id"]] = projected
+    return {"referenceSha256": hashes, "assets": assets}
+
+
+def compare_resource_decisions(
+    baseline: dict[str, object], candidate: dict[str, object]
+) -> list[str]:
+    before = resource_decision_projection(baseline)
+    after = resource_decision_projection(candidate)
+    differences: list[str] = []
+    if before["referenceSha256"] != after["referenceSha256"]:
+        differences.append("referenceSha256")
+        return differences
+    before_assets = before["assets"]
+    after_assets = after["assets"]
+    if set(before_assets) != set(after_assets):
+        differences.append("assetIds")
+    for asset_id in sorted(set(before_assets) & set(after_assets)):
+        for field in RESOURCE_DECISION_FIELDS:
+            if before_assets[asset_id].get(field) != after_assets[asset_id].get(field):
+                differences.append(f"{asset_id}.{field}")
+    return differences
+
+
+def run(
+    manifest_path: Path,
+    mode: str = DELIVERY_MODE,
+    baseline_manifest_path: Path | None = None,
+) -> dict[str, object]:
     errors: list[str] = []
     warnings: list[str] = []
     manifest = read_json_object(manifest_path, "Resource manifest", errors)
@@ -215,19 +303,77 @@ def run(manifest_path: Path) -> dict[str, object]:
 
     if manifest.get("schemaVersion") != 3:
         errors.append("Resource manifest schemaVersion must be 3")
+    execution_profile = manifest.get("executionProfile")
+    if execution_profile not in EXECUTION_PROFILES:
+        errors.append(f"executionProfile must be one of {sorted(EXECUTION_PROFILES)}")
     validate_generation_policy(manifest, errors)
-    validate_reference_items(manifest, errors, warnings)
-    metrics = validate_assets(manifest, errors)
+    reference_hashes = validate_reference_items(manifest, errors, warnings)
+    metrics = validate_assets(
+        manifest, manifest_path, reference_hashes, execution_profile, errors
+    )
+    require_generation_contract = generation_contract_required_for_mode(mode)
+    if mode == DELIVERY_MODE:
+        if manifest.get("labGenerationContractVersion") is not None:
+            errors.append("delivery must not declare labGenerationContractVersion")
+        plans = validate_delivery_prompt_contract(manifest, errors, required=True)
+    else:
+        if manifest.get("deliveryPromptPlanVersion") is not None:
+            errors.append("experiment modes must not declare deliveryPromptPlanVersion")
+        plans = validate_contract(manifest, errors, required=require_generation_contract)
+    if baseline_manifest_path is not None:
+        baseline = read_json_object(baseline_manifest_path, "Baseline resource manifest", errors)
+        if baseline is not None:
+            differences = compare_resource_decisions(baseline, manifest)
+            if differences:
+                errors.append(
+                    "Exact-reference resource decisions drifted from baseline: "
+                    + ", ".join(differences)
+                )
+            metrics["baseline_manifest"] = str(baseline_manifest_path)
+            metrics["resource_decision_differences"] = differences
+    metrics["planned_generation_count"] = len(plans)
     metrics["manifest"] = str(manifest_path)
     metrics["schema_version"] = manifest.get("schemaVersion")
+    metrics["execution_profile"] = execution_profile
     return {"ok": not errors, "errors": errors, "warnings": warnings, "metrics": metrics}
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("manifest", type=Path, help="Path to resource-manifest.json")
+    parser.add_argument(
+        "--mode",
+        choices=[DELIVERY_MODE, *sorted(EXPERIMENT_MODES)],
+        default=DELIVERY_MODE,
+        help="delivery is the default; generation contracts are only required for explicit experiment modes",
+    )
+    parser.add_argument(
+        "--baseline-manifest",
+        type=Path,
+        help="Freeze resource classification and route for the exact same reference SHA-256",
+    )
+    parser.add_argument(
+        "--require-generation-contract",
+        action="store_true",
+        help="Legacy explicit guard; valid only with rule-regression or fresh-generation-stability",
+    )
     args = parser.parse_args()
-    result = run(args.manifest.expanduser().resolve())
+    if args.require_generation_contract and args.mode == DELIVERY_MODE:
+        parser.error(
+            "--require-generation-contract is experimental and cannot be used with delivery; "
+            "select --mode rule-regression or --mode fresh-generation-stability"
+        )
+    baseline_manifest = (
+        args.baseline_manifest.expanduser().resolve()
+        if args.baseline_manifest is not None
+        else None
+    )
+    result = run(
+        args.manifest.expanduser().resolve(),
+        mode=args.mode,
+        baseline_manifest_path=baseline_manifest,
+    )
+    result.setdefault("metrics", {})["test_mode"] = args.mode
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result["ok"] else 1
 
