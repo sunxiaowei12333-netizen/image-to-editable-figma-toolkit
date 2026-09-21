@@ -1,13 +1,14 @@
 {
   "name": "image-to-editable-figma",
-  "version": "1.2.0-local-promoted.1",
-  "status": "local-promoted",
+  "version": "1.2.0",
+  "status": "stable",
   "createdAt": "2026-09-18",
+  "publishedAt": "2026-09-21T12:05:13+08:00",
   "forkedFrom": {
     "name": "image-to-editable-figma-lab-backup",
     "skillSha256": "55d6585fe666346d720815745351b6b79cc8331507115469ce76c556a7573ea9"
   },
-  "contentSha256": "358035f5ec5a540c66244db0eba2fcea9e19b94b1ff6c3943b40309c4e453549",
+  "contentSha256": "7393f4af75eac46c13e6afde4f809b65eeec89d238cb076434e0258465a4fa37",
   "changes": [
     "默认一次带安全纯色底生成再抠图；受控纠正仅用于明确失败",
     "有效像素首选2倍最低1.5倍；100%整体加风险部位局部放大",
@@ -27,6 +28,6 @@
     "普通 delivery 严重 Alpha 失败支持有明确方向的默认一次受控纠正；按实际提取色域判断色键冲突；总计两次上限、实验单次与质量门槛保持不变",
     "备份优化版迁移为正式调用入口；原正式版保留为 image-to-editable-figma-formal-copy"
   ],
-  "updatedAt": "2026-09-20",
-  "validationScope": "Scoped instruction update for severe Alpha retry and color-key conflict assessment. Extraction algorithms and thresholds unchanged. Skill validation and existing regression results are recorded in the alpha-retry-20260920-c71a update audit; no new image generation or Figma import validation."
+  "updatedAt": "2026-09-21",
+  "validationScope": "Promoted release validated with quick_validate, 79 regression tests, JavaScript syntax checks, release fingerprint verification and a clean-install package check. End-to-end evidence reuses completed backup-version HTML and Figma deliveries; this publication step did not trigger new image generation."
 }

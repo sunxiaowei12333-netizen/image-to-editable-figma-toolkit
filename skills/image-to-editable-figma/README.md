@@ -1,8 +1,8 @@
 # 图片转 Figma
 
-调用 `$image-to-editable-figma`。这是由 2026-09-20 备份优化版迁移而来的当前正式入口；原正式版保留在 `image-to-editable-figma-formal-copy`，仅用于回滚和对照。测试规则与完整本地色板见 `references/lab-test-protocol.md` 和 `references/html-basic-standards.md`。每次任务分别记录生成、抠图、HTML 和检查的实际耗时，不预先承诺提速。现有稳定预览服务保持原身份与端口，正式任务目录使用 `image-to-editable-figma` 标识，不覆盖历史产物。
+调用 `$image-to-editable-figma`。这是由 2026-09-20 备份优化版迁移而来的当前正式入口；原正式版副本只保留在发布维护机上，用于回滚和对照，不随用户安装包发布，也不参与普通任务路由。测试规则与完整本地色板见 `references/lab-test-protocol.md` 和 `references/html-basic-standards.md`。每次任务分别记录生成、抠图、HTML 和检查的实际耗时，不预先承诺提速。现有稳定预览服务保持原身份与端口，正式任务目录使用 `image-to-editable-figma` 标识，不覆盖历史产物。
 
-## 团队安装
+## 用户安装
 
 从 GitHub 下载或克隆后，请把完整的 `image-to-editable-figma/` 目录复制到每位用户的 Codex Skills 目录，例如：
 
