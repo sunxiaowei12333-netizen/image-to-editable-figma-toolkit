@@ -26,7 +26,7 @@
     "普通delivery明显比例或整体颜色失败最多一次受控纠正；实验首次稳定性不使用纠正结果",
     "恢复已确认的文字与图标颜色规范；图片比例及整体偏色纠正不扩展到文字",
     "普通 delivery 严重 Alpha 失败支持有明确方向的默认一次受控纠正；按实际提取色域判断色键冲突；总计两次上限、实验单次与质量门槛保持不变",
-    "备份优化版迁移为正式调用入口；原正式版保留为 image-to-editable-figma-formal-copy"
+    "备份优化版迁移为正式调用入口；旧正式版仅在发布维护机保留为回滚副本"
   ],
   "updatedAt": "2026-09-21",
   "validationScope": "Promoted release validated with quick_validate, 79 regression tests, JavaScript syntax checks, release fingerprint verification and a clean-install package check. End-to-end evidence reuses completed backup-version HTML and Figma deliveries; this publication step did not trigger new image generation."
