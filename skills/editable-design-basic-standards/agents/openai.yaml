@@ -1,0 +1,4 @@
+interface:
+  display_name: "规范设计稿"
+  short_description: "三阶段处理基础视觉、组件库联动与本地组件整理"
+  default_prompt: "使用 $editable-design-basic-standards 直接在我提供的链接范围内编辑，先完成第一步基础视觉规范，阶段结束后等我回复“同意”再继续组件库联动和本地组件整理。"
